@@ -26,6 +26,8 @@ use crate::{
     ColumnId,
 };
 
+use std::cell::UnsafeCell;
+use std::ptr;
 
 use std::sync::atomic::{AtomicU16, Ordering};
 use crossbeam::channel::{bounded, unbounded};
@@ -1170,6 +1172,131 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         Ok(result_buffers)
     }
 
+    // Just testing reading in parallel getting stuck on the threads thing
+    fn run_generation_4(
+        &mut self,
+        policy: &Arc<MemoryPolicy>,
+        context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
+        mem_pool: &Arc<M>,
+        dest_c_key: ContainerKey,
+    ) -> Result<Vec<Arc<AppendOnlyStore<M>>>, ExecError>
+    where
+        <T as fbtree::txn_storage::TxnStorageTrait>::IteratorHandle: Send + Sync,
+        <T as fbtree::txn_storage::TxnStorageTrait>::TxnHandle: Send + Sync,
+    {
+        const TEMP_DB_ID: DatabaseId = 321; // xtx magic number
+        const TEMP_C_ID_BASE: u16 = 321; // xtx magic number
+        let mut temp_c_id_counter = TEMP_C_ID_BASE;
+    
+        let mut sort_buffer = SortBuffer::new(
+            mem_pool,
+            ContainerKey::new(TEMP_DB_ID, temp_c_id_counter),
+            policy,
+            self.sort_cols.clone(),
+        );
+        let mut result_buffers = Vec::new();
+    
+        // Specify the ranges you want to process
+        let ranges = vec![(0, 100), (500, 600), (1000, 1100), (1700, 1800)];
+    
+
+        let mut result_buffers = Vec::new();
+
+        // Specify the ranges you want to process
+        let ranges = vec![(0, 100), (500, 600), (1000, 1100), (1700, 1800)];
+    
+        let total_tuples = self.exec_plan.estimate_num_tuples(context);
+    
+        // Wrap `exec_plan` in an `UnsafeCell` to allow unsafe mutable access across threads
+        let exec_plan_cell = UnsafeCell::new(self.exec_plan.clone_with_range(0, total_tuples));
+    
+        // Use `rayon::scope` to process each range in parallel
+        rayon::scope(|s| {
+            for (i, &(start, end)) in ranges.iter().enumerate() {
+                let context = context.clone(); // Clone the context for thread safety
+    
+                s.spawn(move |_| {
+                    // Print the current thread and range being processed
+                    println!("Thread {} processing range {}-{}", i + 1, start, end);
+    
+                    // Unsafe block to access `UnsafeCell`
+                    unsafe {
+                        let exec_plan = (*exec_plan_cell.get()).clone_with_range(start, end);
+                        let mut exec_plan_iter = exec_plan;
+    
+                        while let Some(tuple) = exec_plan_iter.next(&context).unwrap() {
+                            // Print each tuple as it's processed by this thread
+                            println!("Thread {} processing tuple: {:?}", i + 1, tuple);
+    
+                            // Process each tuple (you may want to insert logic for how tuples are handled)
+                        }
+                    }
+                });
+            }
+        });
+    
+    
+        let mut exec_plan_2 = self.exec_plan.clone_with_range(0, 100);
+        while let Some(tuple) = exec_plan_2.next(context)? {
+            println!("tuple {:?}", tuple);
+        }
+    
+        while let Some(tuple) = self.exec_plan.next(context)? {
+            if sort_buffer.append(&tuple) {
+                continue;
+            } else {
+                sort_buffer.sort();
+                let quantiles = sort_buffer.sample_quantiles(self.quantiles.num_quantiles);
+                self.quantiles.merge(&quantiles);
+    
+                let iter = SortBufferIter::new(&sort_buffer);
+    
+                // Create temporary container key
+                temp_c_id_counter += 1;
+                let temp_container_key = ContainerKey {
+                    db_id: TEMP_DB_ID,
+                    c_id: temp_c_id_counter,
+                };
+    
+                let output = Arc::new(AppendOnlyStore::bulk_insert_create(
+                    temp_container_key,
+                    mem_pool.clone(),
+                    SortBufferIter::new(&sort_buffer),
+                ));
+                result_buffers.push(output);
+    
+                sort_buffer.reset();
+                if !sort_buffer.append(&tuple) {
+                    panic!("Record too large to fit in a page");
+                }
+            }
+        }
+    
+        // Finally sort and output the remaining records
+        sort_buffer.sort();
+        // Compute quantiles for the last run
+        let quantiles = sort_buffer.sample_quantiles(self.quantiles.num_quantiles);
+        self.quantiles.merge(&quantiles);
+    
+        let iter = SortBufferIter::new(&sort_buffer);
+    
+        // Create temporary container key
+        temp_c_id_counter += 1;
+        let temp_container_key = ContainerKey {
+            db_id: TEMP_DB_ID,
+            c_id: temp_c_id_counter,
+        };
+        let output = Arc::new(AppendOnlyStore::bulk_insert_create(
+            temp_container_key,
+            mem_pool.clone(),
+            SortBufferIter::new(&sort_buffer),
+        ));
+        result_buffers.push(output);
+    
+        Ok(result_buffers)
+    }
+    
+    
 
     fn run_merge(
         &mut self,
@@ -1306,7 +1433,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
     ) -> Result<Arc<OnDiskBuffer<T, M>>, ExecError> {
         // -------------- Run Generation Phase --------------
         let start_generation = Instant::now();
-        let runs = self.run_generation_2(policy, context, mem_pool, dest_c_key)?;
+        let runs = self.run_generation_4(policy, context, mem_pool, dest_c_key)?;
         let duration_generation = start_generation.elapsed();
 
 

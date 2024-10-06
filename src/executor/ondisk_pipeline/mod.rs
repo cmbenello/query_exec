@@ -33,6 +33,7 @@ use disk_buffer::{OnDiskBuffer, OnDiskBufferIter};
 // Pipeline iterators are non-blocking.
 pub enum NonBlockingOp<T: TxnStorageTrait, M: MemPool> {
     Scan(PScanIter<T, M>),
+    RangeScan(PRangeScanIter<T, M>),
     Filter(PFilterIter<T, M>),
     Project(PProjectIter<T, M>),
     Map(PMapIter<T, M>),
@@ -44,6 +45,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
     pub fn schema(&self) -> &SchemaRef {
         match self {
             NonBlockingOp::Scan(iter) => iter.schema(),
+            NonBlockingOp::RangeScan(iter) => iter.schema(),
             NonBlockingOp::Filter(iter) => iter.schema(),
             NonBlockingOp::Project(iter) => iter.schema(),
             NonBlockingOp::Map(iter) => iter.schema(),
@@ -55,6 +57,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
     pub fn rewind(&mut self) {
         match self {
             NonBlockingOp::Scan(iter) => iter.rewind(),
+            NonBlockingOp::RangeScan(iter) => iter.rewind(),
             NonBlockingOp::Filter(iter) => iter.rewind(),
             NonBlockingOp::Project(iter) => iter.rewind(),
             NonBlockingOp::Map(iter) => iter.rewind(),
@@ -66,6 +69,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
     pub fn deps(&self) -> HashSet<PipelineID> {
         match self {
             NonBlockingOp::Scan(iter) => iter.deps(),
+            NonBlockingOp::RangeScan(iter) => iter.deps(),
             NonBlockingOp::Filter(iter) => iter.deps(),
             NonBlockingOp::Project(iter) => iter.deps(),
             NonBlockingOp::Map(iter) => iter.deps(),
@@ -77,6 +81,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
     pub fn print_inner(&self, indent: usize, out: &mut String) {
         match self {
             NonBlockingOp::Scan(iter) => iter.print_inner(indent, out),
+            NonBlockingOp::RangeScan(iter) => iter.print_inner(indent, out),
             NonBlockingOp::Filter(iter) => iter.print_inner(indent, out),
             NonBlockingOp::Project(iter) => iter.print_inner(indent, out),
             NonBlockingOp::Map(iter) => iter.print_inner(indent, out),
@@ -91,6 +96,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
     ) -> Result<Option<Tuple>, ExecError> {
         match self {
             NonBlockingOp::Scan(iter) => iter.next(context),
+            NonBlockingOp::RangeScan(iter) => iter.next(context),
             NonBlockingOp::Filter(iter) => iter.next(context),
             NonBlockingOp::Project(iter) => iter.next(context),
             NonBlockingOp::Map(iter) => iter.next(context),
@@ -105,6 +111,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
     ) -> usize {
         match self {
             NonBlockingOp::Scan(iter) => iter.estimate_num_tuples(context),
+            NonBlockingOp::RangeScan(iter) => iter.estimate_num_tuples(context),
             NonBlockingOp::Filter(iter) => iter.estimate_num_tuples(context),
             NonBlockingOp::Project(iter) => iter.estimate_num_tuples(context),
             NonBlockingOp::Map(iter) => iter.estimate_num_tuples(context),
@@ -118,7 +125,48 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
             }
         }
     }
+
+    pub fn clone_with_range(&self, start_index: usize, end_index: usize) -> Self {
+        match self {
+            NonBlockingOp::Scan(iter) => {
+                NonBlockingOp::RangeScan(PRangeScanIter::new(
+                    iter.schema().clone(),
+                    iter.id,
+                    iter.column_indices.clone(),
+                    start_index,
+                    end_index,
+                ))
+            }
+            NonBlockingOp::Filter(iter) => {
+                NonBlockingOp::Filter(PFilterIter {
+                    schema: iter.schema.clone(),
+                    input: Box::new(iter.input.clone_with_range(start_index, end_index)),
+                    expr: iter.expr.clone(),
+                    num_tuples_scanned: 0,
+                    num_tuples_filtered: 0,
+                })
+            }
+            NonBlockingOp::Project(iter) => {
+                NonBlockingOp::Project(PProjectIter {
+                    schema: iter.schema.clone(),
+                    input: Box::new(iter.input.clone_with_range(start_index, end_index)),
+                    column_indices: iter.column_indices.clone(),
+                })
+            }
+            NonBlockingOp::Map(iter) => {
+                NonBlockingOp::Map(PMapIter {
+                    schema: iter.schema.clone(),
+                    input: Box::new(iter.input.clone_with_range(start_index, end_index)),
+                    exprs: iter.exprs.clone(),
+                })
+            }
+            other => {
+                panic!("clone_with_range not implemented for this method");
+            }
+        }
+    }
 }
+
 
 pub struct PScanIter<T: TxnStorageTrait, M: MemPool> {
     schema: SchemaRef, // Output schema
@@ -197,6 +245,120 @@ impl<T: TxnStorageTrait, M: MemPool> PScanIter<T, M> {
     }
 }
 
+
+pub struct PRangeScanIter<T: TxnStorageTrait, M: MemPool> {
+    schema: SchemaRef, // Output schema
+    id: PipelineID,
+    column_indices: Vec<ColumnId>,
+    iter: Option<OnDiskBufferIter<T, M>>,
+    start_index: usize,
+    end_index: usize,
+    current_index: usize,
+}
+
+impl<T: TxnStorageTrait, M: MemPool> PRangeScanIter<T, M> {
+    pub fn new(
+        schema: SchemaRef,
+        id: PipelineID,
+        column_indices: Vec<ColumnId>,
+        start_index: usize,
+        end_index: usize,
+    ) -> Self {
+        Self {
+            schema,
+            id,
+            column_indices,
+            iter: None,
+            start_index,
+            end_index,
+            current_index: 0,
+        }
+    }
+
+    pub fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
+    pub fn rewind(&mut self) {
+        self.iter = None;
+        self.current_index = 0;
+    }
+
+    pub fn deps(&self) -> HashSet<PipelineID> {
+        let mut deps = HashSet::new();
+        deps.insert(self.id);
+        deps
+    }
+
+    pub fn print_inner(&self, indent: usize, out: &mut String) {
+        out.push_str(&format!(
+            "{}->range_scan(p_id({}), start: {}, end: {}, ",
+            " ".repeat(indent),
+            self.id,
+            self.start_index,
+            self.end_index,
+        ));
+        let mut split = "";
+        out.push('[');
+        for col_id in &self.column_indices {
+            out.push_str(split);
+            out.push_str(&format!("{}", col_id));
+            split = ", ";
+        }
+        out.push_str("])\n");
+    }
+
+    pub fn next(
+        &mut self,
+        context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
+    ) -> Result<Option<Tuple>, ExecError> {
+        log_debug!("RangeScanIter::next");
+        if self.iter.is_none() {
+            self.iter = context.get(&self.id).map(|buf| buf.iter());
+        }
+
+        while let Some(iter) = &mut self.iter {
+            if self.current_index >= self.end_index {
+                return Ok(None);
+            }
+
+            match iter.next() {
+                Ok(Some(next_tuple)) => {
+                    if self.current_index >= self.start_index {
+                        self.current_index += 1;
+                        let projected_tuple = next_tuple.project(&self.column_indices);
+                        return Ok(Some(projected_tuple));
+                    } else {
+                        // Skip tuples until we reach start_index
+                        self.current_index += 1;
+                        continue;
+                    }
+                }
+                Ok(None) => {
+                    // No more tuples from the iterator
+                    return Ok(None);
+                }
+                Err(e) => {
+                    // Propagate the error
+                    return Err(e);
+                }
+            }
+        }
+        Ok(None)
+    }
+    
+    // XTX not implemented
+    pub fn estimate_num_tuples(
+        &self,
+        context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
+    ) -> usize {
+        context
+            .get(&self.id)
+            .map(|buf| buf.num_tuples())
+            .unwrap_or(0)
+    }
+
+}
 pub struct PFilterIter<T: TxnStorageTrait, M: MemPool> {
     schema: SchemaRef, // Output schema
     input: Box<NonBlockingOp<T, M>>,
@@ -1726,6 +1888,7 @@ impl<T: TxnStorageTrait, M: MemPool> PhysicalRelExprToPipelineQueue<T, M> {
                     .map(|(col_id, asc, nulls_first)| (col_id_to_idx[col_id], *asc, *nulls_first))
                     .collect();
                 let schema = input_op.schema().clone();
+                // XTX this is where control the scan 
                 let num_quantiles = std::env::var("BENCH_NUM_QUANTILES") //xtx janky way of updating the number of quantiles/threads
                 .unwrap_or_else(|_| "10".to_string())
                 .parse::<usize>()
