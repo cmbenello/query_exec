@@ -21,7 +21,7 @@ use crate::prelude::{Catalog, ColumnDef, DataType, Schema, SchemaRef, Table};
 
 pub fn print_tuples(tuples: Arc<impl TupleBuffer>) {
     let mut count = 0;
-    let tuples = tuples.iter();
+    let mut tuples = tuples.iter();
     while let Some(t) = tuples.next().unwrap() {
         count += 1;
         println!("{}", t.to_pretty_string());
@@ -515,7 +515,7 @@ mod tests {
         verbose: bool,
     ) {
         let mut vec = Vec::new();
-        let result = result.iter();
+        let mut result = result.iter();
         while let Some(t) = result.next().unwrap() {
             vec.push(t);
         }

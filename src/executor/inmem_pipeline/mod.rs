@@ -143,15 +143,24 @@ impl<T: TxnStorageTrait> PScanIter<T> {
         context: &HashMap<PipelineID, Arc<InMemBuffer<T>>>,
     ) -> Result<Option<Tuple>, ExecError> {
         log_debug!("ScanIter::next");
-        if let Some(iter) = &mut self.iter {
-            let next = iter.next();
-            Ok(next.map(|tuple| tuple.project(&self.column_indices)))
-        } else {
+
+        // If the iterator is not initialized, initialize it
+        if self.iter.is_none() {
             self.iter = context.get(&self.id).map(|buf| buf.iter_all());
-            Ok(self
-                .iter
-                .as_ref()
-                .and_then(|iter| iter.next().map(|tuple| tuple.project(&self.column_indices))))
+        }
+        if let Some(iter) = &mut self.iter {
+            match iter.next() {
+                Ok(Some(tuple)) => {
+                    // Attempt to project the tuple
+                    let projected_tuple = tuple.project(&self.column_indices);
+                    Ok(Some(projected_tuple))
+                }
+                Ok(None) => Ok(None), // No more tuples to process
+                Err(e) => Err(e),     // Propagate the error
+            }
+        } else {
+            // Iterator could not be initialized; return Ok(None)
+            Ok(None)
         }
     }
 }
@@ -442,7 +451,7 @@ impl<T: TxnStorageTrait> PHashJoinInnerIter<T> {
     ) -> Result<Option<Tuple>, ExecError> {
         log_debug!("HashJoinInnerIter::next");
         if let Some((probe, build_iter)) = &mut self.current {
-            if let Some(build) = build_iter.next() {
+            if let Ok(Some(build)) = build_iter.next() {
                 let result = build.merge_mut(probe);
                 return Ok(Some(result));
             }
@@ -541,7 +550,7 @@ impl<T: TxnStorageTrait> PHashJoinRightOuterIter<T> {
     ) -> Result<Option<Tuple>, ExecError> {
         log_debug!("HashJoinRightOuterIter::next");
         if let Some((probe, build_iter)) = &mut self.current {
-            if let Some(build) = build_iter.next() {
+            if let Ok(Some(build)) = build_iter.next() {
                 let result = build.merge_mut(probe);
                 return Ok(Some(result));
             }

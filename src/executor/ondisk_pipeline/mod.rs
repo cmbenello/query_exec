@@ -1,6 +1,7 @@
 mod disk_buffer;
 mod hash_table;
 mod sort;
+use std::marker::PhantomData;
 
 use core::num;
 use std::{
@@ -9,7 +10,10 @@ use std::{
 };
 
 use fbtree::{
-    access_method::fbt::FosterBtreeAppendOnlyRangeScanner,
+    access_method::{
+        fbt::FosterBtreeAppendOnlyRangeScanner,
+        append_only_store::AppendOnlyStoreRangeIter,
+    },
     bp::{ContainerId, ContainerKey, DatabaseId, MemPool},
     prelude::{AppendOnlyStore, TxnStorageTrait},
 };
@@ -128,7 +132,7 @@ impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
 
     pub fn clone_with_range(&self, start_index: usize, end_index: usize) -> Self {
         match self {
-            NonBlockingOp::Scan(iter) => NonBlockingOp::RangeScan(PRangeScanIter::new(
+            NonBlockingOp::Scan(iter) => NonBlockingOp::RangeScan(PRangeScanIter::<T, M>::new(
                 iter.schema().clone(),
                 iter.id,
                 iter.column_indices.clone(),
@@ -211,12 +215,12 @@ impl<T: TxnStorageTrait, M: MemPool> PScanIter<T, M> {
         context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
     ) -> Result<Option<Tuple>, ExecError> {
         log_debug!("ScanIter::next");
-        if let Some(iter) = &self.iter {
+        if let Some(iter) = &mut self.iter {
             let next = iter.next();
             next.map(|res| res.map(|tuple| tuple.project(&self.column_indices)))
         } else {
             self.iter = context.get(&self.id).map(|buf| buf.iter());
-            if let Some(iter) = &self.iter {
+            if let Some(iter) = &mut self.iter {
                 let next = iter.next();
                 next.map(|res| res.map(|tuple| tuple.project(&self.column_indices)))
             } else {
@@ -240,10 +244,11 @@ pub struct PRangeScanIter<T: TxnStorageTrait, M: MemPool> {
     schema: SchemaRef,
     id: PipelineID,
     column_indices: Vec<ColumnId>,
-    iter: Option<OnDiskBufferIter<T, M>>,
+    iter: Option<AppendOnlyStoreRangeIter<M>>, //xtx forcine append only for now
     start_index: usize,
     end_index: usize,
     current_index: usize,
+    _marker: PhantomData<T>,
 }
 
 impl<T: TxnStorageTrait, M: MemPool> PRangeScanIter<T, M> {
@@ -298,45 +303,84 @@ impl<T: TxnStorageTrait, M: MemPool> PRangeScanIter<T, M> {
         out.push_str("])\n");
     }
 
-    pub fn next(
-        &mut self,
-        context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
+
+    fn next(
+        &mut self, 
+        context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>
     ) -> Result<Option<Tuple>, ExecError> {
         log_debug!("RangeScanIter::next");
+
+        // Initialize the iterator if it's not already initialized
         if self.iter.is_none() {
-            self.iter = context.get(&self.id).map(|buf| buf.iter());
-        }
-
-        while let Some(iter) = &mut self.iter {
-            if self.current_index >= self.end_index {
-                return Ok(None);
-            }
-
-            match iter.next() {
-                Ok(Some(next_tuple)) => {
-                    if self.current_index >= self.start_index {
-                        self.current_index += 1;
-                        let projected_tuple = next_tuple.project(&self.column_indices);
-                        return Ok(Some(projected_tuple));
-                    } else {
-                        // Skip tuples until we reach start_index
-                        self.current_index += 1;
-                        continue;
-                    }
+            if let Some(buf) = context.get(&self.id) {
+                if let OnDiskBuffer::AppendOnlyStore(store) = buf.as_ref() {
+                    let range_iter = store.range_scan(self.start_index, self.end_index);
+                    self.iter = Some(range_iter);
+                } else {
+                    // return Err(ExecError::Storage("RangeScanIter: Unsupported buffer type"));
+                    unimplemented!()
                 }
-                Ok(None) => {
-                    // No more tuples from the iterator
-                    return Ok(None);
-                }
-                Err(e) => {
-                    // Propagate the error
-                    return Err(e);
-                }
+            } else {
+                // return Err(ExecError::new("RangeScanIter: Buffer not found in context"));
+                unimplemented!()
             }
         }
-        Ok(None)
+
+        // Use the iterator if it's initialized
+        if let Some(iter) = &mut self.iter {
+            if let Some((key, value)) = iter.next() {
+                // Project if necessary
+                let projected_tuple = Tuple::from_fields(vec![
+                    Field::from_bytes(&key),
+                    Field::from_bytes(&value),
+                ]).project(&self.column_indices);
+                Ok(Some(projected_tuple))
+            } else {
+                // Iterator exhausted
+                Ok(None)
+            }
+        } else {
+            // Iterator could not be initialized
+            Ok(None)
+        }
     }
 }
+
+// // XTx idk what is going on here/when to use here or in the impl for Prangescaniter
+// impl<T: TxnStorageTrait, M: MemPool> TupleBufferIter for PRangeScanIter<T, M> {
+//     fn next(&mut self, context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>) -> Result<Option<Tuple>, ExecError> {
+//         log_debug!("RangeScanIter::next");
+
+//         // Initialize the iterator if it's not already initialized
+//         if self.iter.is_none() {
+//             if let Some(buf) = context.get(&self.id) {
+//                 if let OnDiskBuffer::AppendOnlyStore(store) = buf.as_ref() {
+//                     let range_iter = store.range_scan(self.start_index, self.end_index);
+//                     self.iter = Some(range_iter);
+//                 } else {
+//                     return Err(ExecError::new("RangeScanIter: Unsupported buffer type"));
+//                 }
+//             } else {
+//                 return Err(ExecError::new("RangeScanIter: Buffer not found in context"));
+//             }
+//         }
+
+//         // Use the iterator if it's initialized
+//         if let Some(iter) = &mut self.iter {
+//             if let Some((key, value)) = iter.next() {
+//                 // Project if necessary
+//                 let projected_tuple = Tuple::new(key, value).project(&self.column_indices);
+//                 Ok(Some(projected_tuple))
+//             } else {
+//                 // Iterator exhausted
+//                 Ok(None)
+//             }
+//         } else {
+//             // Iterator could not be initialized
+//             Ok(None)
+//         }
+//     }
+// }
 
 impl<T: TxnStorageTrait, M: MemPool> Clone for PRangeScanIter<T, M> {
     fn clone(&self) -> Self {

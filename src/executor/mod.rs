@@ -29,5 +29,5 @@ pub trait TupleBuffer {
 }
 
 pub trait TupleBufferIter {
-    fn next(&self) -> Result<Option<Tuple>, ExecError>;
+    fn next(&mut self) -> Result<Option<Tuple>, ExecError>;
 }

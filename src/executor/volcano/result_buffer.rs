@@ -84,7 +84,7 @@ impl TupleBuffer for ResultBuffer {
 }
 
 impl TupleBufferIter for ResultBufferIter {
-    fn next(&self) -> Result<Option<Tuple>, ExecError> {
+    fn next(&mut self) -> Result<Option<Tuple>, ExecError> {
         let index = self.index.fetch_add(1, Ordering::AcqRel);
         if index < self.buffer.len() {
             Ok(Some(unsafe { (*self.buffer.buffer.get())[index].copy() }))

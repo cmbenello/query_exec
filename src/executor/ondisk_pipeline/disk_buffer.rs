@@ -59,6 +59,15 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskBuffer<T, M> {
             c_key, mem_pool, iter,
         )))
     }
+
+    /// Provides access to the AppendOnlyStore if the buffer is of that type
+    pub fn as_append_only_store(&self) -> Option<Arc<AppendOnlyStore<M>>> {
+        if let OnDiskBuffer::AppendOnlyStore(store) = self {
+            Some(store.clone())
+        } else {
+            None
+        }
+    }
 }
 
 impl<T: TxnStorageTrait, M: MemPool> TupleBuffer for OnDiskBuffer<T, M> {
@@ -175,7 +184,7 @@ impl<T: TxnStorageTrait> Drop for TxnStorageIter<T> {
 }
 
 impl<T: TxnStorageTrait, M: MemPool> TupleBufferIter for OnDiskBufferIter<T, M> {
-    fn next(&self) -> Result<Option<Tuple>, ExecError> {
+    fn next(&mut self) -> Result<Option<Tuple>, ExecError> {
         match self {
             OnDiskBufferIter::TxnStorage(iter) => {
                 Ok(iter.next()?.map(|(_, v)| Tuple::from_bytes(&v)))

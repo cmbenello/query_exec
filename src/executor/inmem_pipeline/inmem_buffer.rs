@@ -37,8 +37,8 @@ impl<T: TxnStorageTrait> TupleBuffer for InMemBuffer<T> {
 }
 
 impl<T: TxnStorageTrait> TupleBufferIter for InMemBufferIter<T> {
-    fn next(&self) -> Result<Option<crate::tuple::Tuple>, crate::error::ExecError> {
-        Ok(self.next())
+    fn next(&mut self) -> Result<Option<crate::tuple::Tuple>, crate::error::ExecError> {
+        Ok(self.next()?) //xtx is this right
     }
 }
 

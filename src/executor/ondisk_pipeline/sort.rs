@@ -1985,7 +1985,7 @@ mod tests {
                 .unwrap();
 
             let mut result = Vec::new();
-            let iter = final_run.iter();
+            let mut iter = final_run.iter();
             while let Some(t) = iter.next().unwrap() {
                 result.push(t);
             }
@@ -2078,7 +2078,7 @@ mod tests {
                 .unwrap();
 
             let mut result = Vec::new();
-            let iter = final_run.iter();
+            let mut iter = final_run.iter();
             while let Some(t) = iter.next().unwrap() {
                 result.push(t);
             }
@@ -2155,7 +2155,7 @@ mod tests {
                 .unwrap();
 
             let mut result = Vec::new();
-            let iter = final_run.iter();
+            let mut iter = final_run.iter();
             while let Some(t) = iter.next().unwrap() {
                 result.push(t);
             }
