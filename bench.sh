@@ -69,6 +69,7 @@ for query_id in "${query_ids[@]}"; do
          BENCH_MEMORY_SIZE=$mem_size BENCH_BP_SIZE=$bp_size BENCH_QUERY_ID=$query_id BENCH_NUM_QUANTILES=$num_quantiles BENCH_CHUNK_SIZE=$chunk_size \
        cargo bench --bench sort_bench
 
+        cargo bench --bench sort_bench
         # Parse the output line by line
         while IFS= read -r line; do
           # Capture "Run generation took"
