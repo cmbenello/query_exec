@@ -53,7 +53,9 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function(&format!("sort with memory size {}", memory_size), |b| {
         b.iter(|| run_sort_benchmark(black_box(memory_size), bp.clone(), query_id));
-        // Optionally print stats here: println!("stats: \n{:?}", bp.stats());
+        println!("stats: \n{:?}", bp.stats());
+        bp.clear_dirty_flags();
+        bp.flush_all_and_reset();;
     });
 }
 
