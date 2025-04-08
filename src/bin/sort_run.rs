@@ -5,6 +5,7 @@ use query_exec::{
     BufferPool, ContainerId, OnDiskStorage,
 };
 use std::sync::Arc;
+use fbtree::container::ContainerManager;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -74,21 +75,25 @@ fn run_sort(memory_size: usize, bp: Arc<BufferPool>, query_id: u32) -> Result<()
 
     // Execute the pipeline.
     let _result = execute(db_id, &storage, exe, false);
-    // println!("stats after {}", bp.stats());
+    println!("stats after {}", bp.stats());
 
     println!("Sort execution completed successfully.");
 
     Ok(())
 }
 
+fn get_bp(dir: &str, num_frames: usize) -> Arc<BufferPool> {
+    let cm = Arc::new(ContainerManager::new(&dir, true, false).unwrap());
+    let bp = Arc::new(BufferPool::new(num_frames, cm).unwrap());
+    bp
+}
+
 fn main() {
     // Parse command-line arguments.
     let opt = SortOpt::parse();
     // Initialize the BufferPool using the provided parameters.
-    let bp = Arc::new(
-        BufferPool::new(&opt.path, opt.buffer_pool_size, false)
-            .expect("Failed to initialize BufferPool"),
-    );
+    let bp = get_bp(&opt.path, opt.buffer_pool_size);
+    println!("bp size {:?}", opt.buffer_pool_size);
     // Run the sort benchmark for the specified number of iterations.
     for itr in 0..opt.num_iterations {
         println!("Iteration {}", itr + 1);

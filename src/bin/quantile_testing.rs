@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 
-use csv::Writer; // Add `csv = "1"` to Cargo.toml
+use csv::Writer; 
+use fbtree::container::ContainerManager;
+
 use serde::Deserialize;
 
 use query_exec::{
@@ -55,10 +57,8 @@ fn main() -> Result<(), String> {
     // For each method, loop over data_sources and queries
     for ds in &data_sources {
         let bp_joined = format!("{}{}", bp_path, ds);
-        let bp = Arc::new(
-            BufferPool::new(bp_joined.clone(), buffer_pool_size, false)
-                .map_err(|e| format!("Failed to initialize BufferPool: {:?}", e))?,
-        );
+        let cm = Arc::new(ContainerManager::new(&bp_joined.clone(), true, false).unwrap());
+        let bp = Arc::new(BufferPool::new(buffer_pool_size, cm).unwrap());
         // Create directory: e.g. "quantile_data/TPCH_SF1" if needed
         let base_path = format!("quantile_data/{}", ds);
         fs::create_dir_all(&base_path)

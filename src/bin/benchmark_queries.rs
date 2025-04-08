@@ -8,6 +8,8 @@ use query_exec::{
 use std::sync::Arc;
 use std::time::Instant;
 use sysinfo::{CpuExt, System, SystemExt};
+use fbtree::container::ContainerManager;
+
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -145,10 +147,8 @@ fn main() {
     let mut system = System::new_all();
 
     // Initialize the BufferPool
-    let bp = Arc::new(
-        BufferPool::new(&opt.path, opt.buffer_pool_size, false)
-            .expect("Failed to initialize BufferPool"),
-    );
+    let cm = Arc::new(ContainerManager::new(&opt.path, true, false).unwrap());
+    let bp = Arc::new(BufferPool::new(opt.buffer_pool_size, cm).unwrap());
 
     for &query_id in &opt.queries {
         for itr in 0..opt.num_iterations {

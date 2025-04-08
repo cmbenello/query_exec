@@ -6,6 +6,8 @@ use query_exec::{
 use std::time::Instant;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use sysinfo::{CpuExt, ProcessExt, System, SystemExt};
+use fbtree::container::ContainerManager;
+
 
 #[derive(Debug, Parser)]
 #[clap(name = "TPC-H Benchmark", about = "Benchmarking query_exec vs DuckDB.")]
@@ -32,7 +34,9 @@ fn get_catalog() -> Arc<Catalog> {
 }
 
 fn get_bp(dir: &str, num_frames: usize) -> Arc<BufferPool> {
-    Arc::new(BufferPool::new(dir, num_frames, false).unwrap())
+    let cm = Arc::new(ContainerManager::new(&dir, true, false).unwrap());
+    let bp = Arc::new(BufferPool::new(num_frames, cm).unwrap());
+    bp
 }
 
 fn get_system_metrics(system: &mut System) -> (f32, f32) {

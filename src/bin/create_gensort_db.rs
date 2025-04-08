@@ -6,6 +6,7 @@ use query_exec::{
     BufferPool,
 };
 use std::{path::PathBuf, sync::Arc};
+use fbtree::container::ContainerManager;
 
 #[derive(Debug, Parser)]
 #[clap(name = "gensort", about = "Loads Gensort binary data into a new DB.")]
@@ -30,7 +31,9 @@ fn get_catalog() -> Arc<Catalog> {
 
 /// Creates a BufferPool in the given directory, with the specified # of frames.
 fn get_bp(dir: &str, num_frames: usize) -> Arc<BufferPool> {
-    Arc::new(BufferPool::new(dir, num_frames, false).expect("Failed to create BP"))
+    let cm = Arc::new(ContainerManager::new(&dir, true, false).unwrap());
+    let bp = Arc::new(BufferPool::new(num_frames, cm).unwrap());
+    bp
 }
 
 /// Creates a new DB "GENSORT", loads the CREATE TABLE statement from

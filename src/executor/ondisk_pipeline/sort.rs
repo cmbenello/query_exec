@@ -375,7 +375,7 @@ impl<M: MemPool> SortBuffer<M> {
             policy: policy.clone(),
             sort_cols,
             ptrs: Vec::new(),
-            data_buffer: Vec::new(), //xtx temp = true container 
+            data_buffer: Vec::new(), //xtx temp = true container
             current_page_idx: 0,
         }
     }
