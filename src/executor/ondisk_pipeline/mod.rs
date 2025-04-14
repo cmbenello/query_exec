@@ -2,6 +2,7 @@ mod disk_buffer;
 mod hash_table;
 mod sort;
 
+use crate::log;
 use core::num;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -303,7 +304,7 @@ impl<T: TxnStorageTrait, M: MemPool> PRangeScanIter<T, M> {
         &mut self,
         context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
     ) -> Result<Option<Tuple>, ExecError> {
-        log_debug!("RangeScanIter::next");
+        // log_debug!("RangeScanIter::next");
         if self.iter.is_none() {
             if let Some(buf) = context.get(&self.id) {
                 self.iter = Some(buf.iter_range(self.start_index, self.end_index));

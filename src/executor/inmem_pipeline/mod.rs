@@ -1,5 +1,6 @@
 mod inmem_buffer;
 
+use crate::log;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::Arc,
