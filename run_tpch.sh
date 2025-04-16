@@ -2,9 +2,9 @@
 # Parameters
 BUFFER_POOL_SIZE=2500000
 NUM_THREADS=8
-WORKING_MEM=14200
+WORKING_MEM=142000
 QUERY=100
-SF=5
+SF=10
 
 # Set environment variables
 export NUM_THREADS=$NUM_THREADS
@@ -14,7 +14,7 @@ export DATA_SOURCE="TPCH"
 export SF=$SF
 export QUERY_NUM=$QUERY
 # export NUM_TUPLES=$((6005720 * SF)) 
-export NUM_TUPLES=$((1876919 * NUM_THREADS)) 
+export NUM_TUPLES=$((3753888 * NUM_THREADS)) 
 
 BP_DIR="bp-dir-tpch-sf-$SF"
 
