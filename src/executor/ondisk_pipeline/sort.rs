@@ -638,7 +638,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         println!("Total tuples estimated: {}", total_tuples);
     
         // Decide on the number of threads
-        let num_threads = 24;
+        let num_threads = 40;
     
         // Calculate chunk size
         let chunk_size = (total_tuples + num_threads - 1) / num_threads;
@@ -697,7 +697,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 let mut tuples_processed = 0;
                 
                 // Batch size for collecting tuples before checking for overflow
-                const BATCH_CHECK_SIZE: usize = 100;
+                const BATCH_CHECK_SIZE: usize = 1000;
                 let mut batch_buffer: Vec<Tuple> = Vec::with_capacity(BATCH_CHECK_SIZE);
                 
                 // Process tuples in batches
@@ -809,18 +809,96 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         let parallel_duration = parallel_start_time.elapsed();
         println!("Parallel execution took {:?}", parallel_duration);
     
-        // Collect runs and merge quantiles
-        let mut result_buffers: Vec<Arc<SortedRunStore<M>>> = Vec::new();
+        // Collect all runs from all threads
+        let mut all_runs: Vec<Arc<SortedRunStore<M>>> = Vec::new();
         let mut total_quantiles = SingleRunQuantiles::new(self.quantiles.num_quantiles);
-    
+
         for (chunk_runs, quantiles) in runs_and_quantiles {
-            result_buffers.extend(chunk_runs);
+            all_runs.extend(chunk_runs);
             total_quantiles.merge(&quantiles);
         }
         self.quantiles = total_quantiles; // Update global quantiles
-    
-        Ok(result_buffers)
-    }
+
+        println!("Generated {} original runs", all_runs.len());
+
+        // Get desired number of runs
+        let target_num_runs = env::var("TARGET_NUM_RUNS")
+            .unwrap_or_else(|_| all_runs.len().to_string())
+            .parse()
+            .expect("TARGET_NUM_RUNS must be a valid number");
+
+        println!("Redistributing into {} target runs", target_num_runs);
+
+        // If we already have the right number, return them
+        if all_runs.len() == target_num_runs {
+            return Ok(all_runs);
+        }
+
+        // Make a single BigSortedRunStore containing all data
+        let mut big_store = BigSortedRunStore::new();
+        for run in all_runs {
+            big_store.add_store(run);
+        }
+
+        // Count total records
+        let total_records = big_store.len();
+        println!("Total records: {}", total_records);
+
+        // Calculate approximate records per target run
+        let records_per_run = total_records / target_num_runs;
+        println!("Target records per run: {}", records_per_run);
+
+        // Create exactly target_num_runs runs
+        let mut final_runs = Vec::with_capacity(target_num_runs);
+        let mut remaining_records = total_records;
+
+        // Collect all records into a single vector so we can divide them up evenly
+        let all_records: Vec<(Vec<u8>, Vec<u8>)> = big_store.scan().collect();
+        println!("Collected {} records to redistribute", all_records.len());
+
+        // Divide records evenly among target runs
+        for i in 0..target_num_runs {
+            // Calculate how many records for this run
+            let run_records = if i == target_num_runs - 1 {
+                remaining_records
+            } else {
+                std::cmp::min(records_per_run, remaining_records)
+            };
+            
+            if run_records == 0 {
+                // Skip creating empty runs
+                continue;
+            }
+            
+            // Get the slice of records for this run
+            let start_idx = i * records_per_run;
+            let end_idx = std::cmp::min(start_idx + run_records, all_records.len());
+            
+            // Create a new container key
+            let new_c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+            let new_key = ContainerKey {
+                db_id: dest_c_key.db_id,
+                c_id: new_c_id,
+            };
+            
+            // Create a run from this slice of records
+            let records_slice = &all_records[start_idx..end_idx];
+            let run = Arc::new(SortedRunStore::new(
+                new_key,
+                mem_pool.clone(),
+                records_slice.iter().cloned(), // Create an iterator from the slice
+            ));
+            
+            final_runs.push(run);
+            remaining_records -= run_records;
+        }
+
+        println!("Final number of runs: {}", final_runs.len());
+        assert_eq!(final_runs.len(), target_num_runs, 
+                "Failed to create the requested number of runs");
+
+        Ok(final_runs)
+        }
 
     fn run_generation_kraska(
         &mut self,
@@ -1165,11 +1243,15 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     let lower_bytes = lower.clone();
                     let upper_bytes = upper.clone();
                     
+                    let run_time = Instant::now();
                     // Create the iterators for this range
                     let run_segments = runs
                         .iter()
                         .map(|r| r.scan_range(&lower_bytes, &upper_bytes))
                         .collect::<Vec<_>>();
+
+                    let duration = run_time.elapsed();
+                    println!("dureation {:?}, thread {}", duration, i);
     
                     // Merge them - optimize by collecting batches before adding to store
                     let merge_iter = MergeIter::new(run_segments);
