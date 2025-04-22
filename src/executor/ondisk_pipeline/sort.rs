@@ -637,9 +637,15 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             .expect("NUM_TUPLES must be a valid number");
         println!("Total tuples estimated: {}", total_tuples);
     
-        // Decide on the number of threads
-        let num_threads = 40;
-    
+        // Set the target number of runs we want to generate
+        let target_run_count = env::var("TARGET_RUN_COUNT")
+            .unwrap_or_else(|_| 1200.to_string())
+            .parse::<usize>()
+            .expect("TARGET_RUN_COUNT must be a valid number");
+        
+        // Define the actual number of threads to use - equal to target run count
+        let num_threads = target_run_count;
+        
         // Calculate chunk size
         let chunk_size = (total_tuples + num_threads - 1) / num_threads;
     
@@ -656,6 +662,9 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             })
             .collect();
     
+        println!("Target run count: {}, threads: {}, chunk size: {}", 
+                 target_run_count, num_threads, chunk_size);
+        
         // Create execution plans for each range
         let plans: Vec<_> = ranges
             .iter()
@@ -666,239 +675,106 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         let c_id_counter = Arc::new(AtomicU16::new(321)); // Starting container ID
         let num_quantiles = self.quantiles.num_quantiles;
         let sort_cols = self.sort_cols.clone();
-        let policy = policy.clone();
         let mem_pool = mem_pool.clone();
-    
+        
         // Start timing for parallel execution
         let parallel_start_time = Instant::now();
-    
-        // Process each plan in parallel
+        
+        // Process each plan in parallel - now with a simpler approach to create 1 run per thread
         let runs_and_quantiles = plans
             .into_par_iter()
             .enumerate()
             .map(|(thread_index, mut exec_plan)| {
                 // Start timing for this thread
                 let thread_start_time = Instant::now();
-                let c_id_counter = c_id_counter.clone();
-                let mut runs: Vec<Arc<SortedRunStore<M>>> = Vec::new();
-                let mut run_quantiles = Vec::new();
-    
-                let mut c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
-                let mut temp_container_key = ContainerKey {
+                
+                // First collect all tuples for this thread
+                let mut all_tuples: Vec<Tuple> = Vec::with_capacity(chunk_size);
+                
+                while let Some(tuple) = exec_plan.next(context)? {
+                    all_tuples.push(tuple);
+                }
+                
+                // Sort the tuples in memory based on the normalized key bytes
+                all_tuples.sort_by(|a, b| {
+                    let key_a = a.to_normalized_key_bytes(&sort_cols);
+                    let key_b = b.to_normalized_key_bytes(&sort_cols);
+                    key_a.cmp(&key_b)
+                });
+                
+                // Calculate sample quantiles from the sorted tuples
+                let mut quantiles = Vec::new();
+                if !all_tuples.is_empty() {
+                    for i in 0..num_quantiles {
+                        let idx = if i == num_quantiles - 1 {
+                            all_tuples.len() - 1
+                        } else {
+                            i * all_tuples.len() / num_quantiles
+                        };
+                        let tuple = &all_tuples[idx];
+                        let key = tuple.to_normalized_key_bytes(&sort_cols);
+                        quantiles.push(key);
+                    }
+                }
+                
+                // Get a container ID and create a run
+                let c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+                let temp_container_key = ContainerKey {
                     db_id: dest_c_key.db_id,
                     c_id,
                 };
-    
-                // Use SortBuffer for in-memory sorting
-                let mut sort_buffer =
-                    SortBuffer::new(&mem_pool, temp_container_key, &policy, sort_cols.clone());
-    
-                // Accumulators
-                let mut tuples_processed = 0;
                 
-                // Batch size for collecting tuples before checking for overflow
-                const BATCH_CHECK_SIZE: usize = 1000;
-                let mut batch_buffer: Vec<Tuple> = Vec::with_capacity(BATCH_CHECK_SIZE);
+                // Create an iterator for the sorted tuples
+                let tuple_iter = all_tuples.into_iter().map(|tuple| {
+                    let key = tuple.to_normalized_key_bytes(&sort_cols);
+                    let val = tuple.to_bytes();
+                    (key, val)
+                });
                 
-                // Process tuples in batches
-                while let Some(tuple) = exec_plan.next(context)? {
-                    batch_buffer.push(tuple);
-                    
-                    // Process the batch when it reaches the target size
-                    if batch_buffer.len() >= BATCH_CHECK_SIZE {
-                        for tuple in batch_buffer.drain(..) {
-                            tuples_processed += 1;
-                            if !sort_buffer.append(&tuple) { //can we make this like a bulk insret this does not seem efficenient
-                                // Sort and process the current buffer
-                                sort_buffer.sort();
-                                let quantiles = sort_buffer.sample_quantiles(num_quantiles);
-                                run_quantiles.push(quantiles);
-    
-                                // Create the run using our optimized SortedRunStore::new
-                                let output = Arc::new(SortedRunStore::new(
-                                    temp_container_key,
-                                    mem_pool.clone(),
-                                    SortBufferIter::new(&sort_buffer),
-                                ));
-                                runs.push(output);
-    
-                                // Reset for the next run
-                                sort_buffer.reset();
-                                c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
-                                temp_container_key = ContainerKey {
-                                    db_id: dest_c_key.db_id,
-                                    c_id,
-                                };
-                                sort_buffer.set_dest_c_key(temp_container_key);
-    
-                                // Try appending the tuple again
-                                if !sort_buffer.append(&tuple) {
-                                    panic!("Record too large to fit in a page");
-                                }
-                            }
-                        }
-                    }
-                }
+                // Create a SortedRunStore directly from the sorted tuples
+                let run = Arc::new(SortedRunStore::new(
+                    temp_container_key,
+                    mem_pool.clone(),
+                    tuple_iter,
+                ));
                 
-                // Process any remaining tuples in the batch buffer
-                for tuple in batch_buffer.drain(..) {
-                    tuples_processed += 1;
-                    if !sort_buffer.append(&tuple) {
-                        // Sort and process the current buffer
-                        sort_buffer.sort();
-                        let quantiles = sort_buffer.sample_quantiles(num_quantiles);
-                        run_quantiles.push(quantiles);
-    
-                        // Create the run using optimized implementation
-                        let output = Arc::new(SortedRunStore::new(
-                            temp_container_key,
-                            mem_pool.clone(),
-                            SortBufferIter::new(&sort_buffer),
-                        ));
-                        runs.push(output);
-    
-                        // Reset for the next run
-                        sort_buffer.reset();
-                        c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
-                        temp_container_key = ContainerKey {
-                            db_id: dest_c_key.db_id,
-                            c_id,
-                        };
-                        sort_buffer.set_dest_c_key(temp_container_key);
-    
-                        // Try appending the tuple again
-                        if !sort_buffer.append(&tuple) {
-                            panic!("Record too large to fit in a page");
-                        }
-                    }
-                }
-    
-                // Process any remaining tuples in the sort_buffer
-                if !sort_buffer.ptrs.is_empty() {
-                    sort_buffer.sort();
-                    let quantiles = sort_buffer.sample_quantiles(num_quantiles);
-                    run_quantiles.push(quantiles);
-    
-                    let output = Arc::new(SortedRunStore::new(
-                        temp_container_key,
-                        mem_pool.clone(),
-                        SortBufferIter::new(&sort_buffer),
-                    ));
-                    runs.push(output);
-                }
-    
                 let thread_duration = thread_start_time.elapsed();
                 println!(
-                    "Thread {} processed {} tuples, generated {} runs in {:?}",
+                    "Thread {} processed {} tuples, generated 1 run in {:?}",
                     thread_index,
-                    tuples_processed,
-                    runs.len(),
+                    run.len(),
                     thread_duration
                 );
     
-                // Merge quantiles within this thread
-                let mut chunk_quantiles = SingleRunQuantiles::new(num_quantiles);
-                for q in run_quantiles {
-                    chunk_quantiles.merge(&q);
-                }
-    
-                Ok((runs, chunk_quantiles))
+                // Create chunk quantiles
+                let run_quantiles = SingleRunQuantiles {
+                    num_quantiles,
+                    quantiles,
+                };
+                
+                Ok((vec![run], run_quantiles))
             })
             .collect::<Result<Vec<_>, ExecError>>()?;
     
         let parallel_duration = parallel_start_time.elapsed();
         println!("Parallel execution took {:?}", parallel_duration);
     
-        // Collect all runs from all threads
-        let mut all_runs: Vec<Arc<SortedRunStore<M>>> = Vec::new();
+        // Collect runs and merge quantiles
+        let mut result_buffers: Vec<Arc<SortedRunStore<M>>> = Vec::new();
         let mut total_quantiles = SingleRunQuantiles::new(self.quantiles.num_quantiles);
-
+    
         for (chunk_runs, quantiles) in runs_and_quantiles {
-            all_runs.extend(chunk_runs);
+            result_buffers.extend(chunk_runs);
             total_quantiles.merge(&quantiles);
         }
         self.quantiles = total_quantiles; // Update global quantiles
+    
+        // Verify we got the target number of runs
+        println!("Generated {} runs (target: {})", result_buffers.len(), target_run_count);
+    
+        Ok(result_buffers)
+    }
 
-        println!("Generated {} original runs", all_runs.len());
-
-        // Get desired number of runs
-        let target_num_runs = env::var("TARGET_NUM_RUNS")
-            .unwrap_or_else(|_| all_runs.len().to_string())
-            .parse()
-            .expect("TARGET_NUM_RUNS must be a valid number");
-
-        println!("Redistributing into {} target runs", target_num_runs);
-
-        // If we already have the right number, return them
-        if all_runs.len() == target_num_runs {
-            return Ok(all_runs);
-        }
-
-        // Make a single BigSortedRunStore containing all data
-        let mut big_store = BigSortedRunStore::new();
-        for run in all_runs {
-            big_store.add_store(run);
-        }
-
-        // Count total records
-        let total_records = big_store.len();
-        println!("Total records: {}", total_records);
-
-        // Calculate approximate records per target run
-        let records_per_run = total_records / target_num_runs;
-        println!("Target records per run: {}", records_per_run);
-
-        // Create exactly target_num_runs runs
-        let mut final_runs = Vec::with_capacity(target_num_runs);
-        let mut remaining_records = total_records;
-
-        // Collect all records into a single vector so we can divide them up evenly
-        let all_records: Vec<(Vec<u8>, Vec<u8>)> = big_store.scan().collect();
-        println!("Collected {} records to redistribute", all_records.len());
-
-        // Divide records evenly among target runs
-        for i in 0..target_num_runs {
-            // Calculate how many records for this run
-            let run_records = if i == target_num_runs - 1 {
-                remaining_records
-            } else {
-                std::cmp::min(records_per_run, remaining_records)
-            };
-            
-            if run_records == 0 {
-                // Skip creating empty runs
-                continue;
-            }
-            
-            // Get the slice of records for this run
-            let start_idx = i * records_per_run;
-            let end_idx = std::cmp::min(start_idx + run_records, all_records.len());
-            
-            // Create a new container key
-            let new_c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
-            let new_key = ContainerKey {
-                db_id: dest_c_key.db_id,
-                c_id: new_c_id,
-            };
-            
-            // Create a run from this slice of records
-            let records_slice = &all_records[start_idx..end_idx];
-            let run = Arc::new(SortedRunStore::new(
-                new_key,
-                mem_pool.clone(),
-                records_slice.iter().cloned(), // Create an iterator from the slice
-            ));
-            
-            final_runs.push(run);
-            remaining_records -= run_records;
-        }
-
-        println!("Final number of runs: {}", final_runs.len());
-        assert_eq!(final_runs.len(), target_num_runs, 
-                "Failed to create the requested number of runs");
-
-        Ok(final_runs)
-        }
 
     fn run_generation_kraska(
         &mut self,
@@ -1338,6 +1214,8 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     .parse()
                     .expect("WORKING_MEM must be a valid number");
     
+                let working_mem: usize = working_mem / num_threads;
+                println!("working mem limit {} runs", working_mem);
                 while runs.len() > 1 {
                     // Number of runs we can merge this step is min(runs.len(), working_mem)
                     let runs_to_merge_count = runs.len().min(working_mem);
@@ -1519,7 +1397,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         let duration_generation = start_generation.elapsed();
         println!("generation duration {:?}", duration_generation);
 
-        // Join the runs from the run generation into one big sorted store
+        // Join the runs from the run generation into one big sorted store xtx update here to control the size of the runs
         let mut big_runs = Vec::new();
         for run in runs {
             let mut temp = BigSortedRunStore::new();
@@ -1540,7 +1418,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         let verbose = true;
 
         // Execute merge based on strategy
-        let final_run = match strategy {
+        let final_run: Arc<BigSortedRunStore<M>> = match strategy {
             MergeStrategy::Kraska => {
                 println!("Using Kraska merge strategy");
                 self.run_merge_kraska(policy, big_runs, mem_pool, dest_c_key, merge_num_threads)?
@@ -1559,20 +1437,20 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         };
         let duration_merge = start_merge.elapsed();
 
-        // Print post-merge statistics
-        let post_merge_stats = StorageStats {
-            total_pages: final_run.num_pages(),
-            total_records: final_run.len(),
-            avg_records_per_page: if final_run.num_pages() > 0 {
-                final_run.len() as f64 / final_run.num_pages() as f64
-            } else {
-                0.0
-            },
-        };
-        self.print_storage_stats("Post-merge", &post_merge_stats);
+        // // Print post-merge statistics
+        // let post_merge_stats = StorageStats {
+        //     total_pages: final_run.num_pages(),
+        //     total_records: final_run.len(),
+        //     avg_records_per_page: if final_run.num_pages() > 0 {
+        //         final_run.len() as f64 / final_run.num_pages() as f64
+        //     } else {
+        //         0.0
+        //     },
+        // };
+        // self.print_storage_stats("Post-merge", &post_merge_stats);
 
-        // Print efficiency changes
-        self.print_efficiency_changes(&pre_merge_stats, &post_merge_stats);
+        // // Print efficiency changes
+        // self.print_efficiency_changes(&pre_merge_stats, &post_merge_stats);
 
         println!("merge duration {:?}", duration_merge);
         if verbose {
