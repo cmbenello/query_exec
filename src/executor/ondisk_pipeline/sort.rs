@@ -544,18 +544,25 @@ impl<'a, M: MemPool> Iterator for SortBufferIter<'a, M> {
 
 pub struct MergeIter<I: Iterator<Item = (Vec<u8>, Vec<u8>)>> {
     run_iters: Vec<I>,
-    heap: BinaryHeap<Reverse<(Vec<u8>, usize, Vec<u8>)>>,
+    // Use indices into a buffer rather than storing actual values in heap
+    heap: BinaryHeap<Reverse<(usize, Vec<u8>)>>, // (run_index, key)
+    values: Vec<Option<Vec<u8>>>,                // Values corresponding to each iterator
 }
 
 impl<I: Iterator<Item = (Vec<u8>, Vec<u8>)>> MergeIter<I> {
     pub fn new(mut run_iters: Vec<I>) -> Self {
-        let mut heap = BinaryHeap::new();
+        let mut heap = BinaryHeap::with_capacity(run_iters.len());
+        let mut values = vec![None; run_iters.len()];
+        
+        // Initialize heap with first element from each iterator
         for (i, iter) in run_iters.iter_mut().enumerate() {
             if let Some((k, v)) = iter.next() {
-                heap.push(Reverse((k, i, v)));
+                heap.push(Reverse((i, k)));
+                values[i] = Some(v);
             }
         }
-        Self { run_iters, heap }
+        
+        Self { run_iters, heap, values }
     }
 }
 
@@ -563,12 +570,18 @@ impl<I: Iterator<Item = (Vec<u8>, Vec<u8>)>> Iterator for MergeIter<I> {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(Reverse((k, i, v))) = self.heap.pop() {
-            let iter = &mut self.run_iters[i];
-            if let Some((next_k, next_v)) = iter.next() {
-                self.heap.push(Reverse((next_k, i, next_v)));
+        if let Some(Reverse((run_idx, key))) = self.heap.pop() {
+            // Get the value corresponding to this key
+            let value = self.values[run_idx].take().unwrap();
+            let result = (key, value);
+            
+            // Fetch next item from this iterator
+            if let Some((next_key, next_value)) = self.run_iters[run_idx].next() {
+                self.heap.push(Reverse((run_idx, next_key)));
+                self.values[run_idx] = Some(next_value);
             }
-            Some((k, v))
+            
+            Some(result)
         } else {
             None
         }
