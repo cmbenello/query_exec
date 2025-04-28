@@ -649,19 +649,13 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             .parse()
             .expect("NUM_TUPLES must be a valid number");
         println!("Total tuples estimated: {}", total_tuples);
-    
-        // Set the target number of runs we want to generate
-        let target_run_count = env::var("TARGET_RUN_COUNT")
-            .unwrap_or_else(|_| 1200.to_string())
-            .parse::<usize>()
-            .expect("TARGET_RUN_COUNT must be a valid number");
-        
-        // Define the actual number of threads to use - equal to target run count
-        let num_threads = target_run_count;
-        
+
+        // Decide on the number of threads
+        let num_threads = 1;
+
         // Calculate chunk size
         let chunk_size = (total_tuples + num_threads - 1) / num_threads;
-    
+
         // Generate ranges
         let ranges: Vec<(usize, usize)> = (0..num_threads)
             .map(|i| {
@@ -674,117 +668,170 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 (start, end)
             })
             .collect();
-    
-        println!("Target run count: {}, threads: {}, chunk size: {}", 
-                 target_run_count, num_threads, chunk_size);
-        
+
         // Create execution plans for each range
         let plans: Vec<_> = ranges
             .iter()
             .map(|&(start, end)| self.exec_plan.clone_with_range(start, end))
             .collect::<Vec<_>>();
-    
+
         // Prepare for parallel execution
         let c_id_counter = Arc::new(AtomicU16::new(321)); // Starting container ID
         let num_quantiles = self.quantiles.num_quantiles;
         let sort_cols = self.sort_cols.clone();
+        let policy = policy.clone();
         let mem_pool = mem_pool.clone();
-        
+
         // Start timing for parallel execution
         let parallel_start_time = Instant::now();
-        
-        // Process each plan in parallel - now with a simpler approach to create 1 run per thread
+
+        // Process each plan in parallel
         let runs_and_quantiles = plans
             .into_par_iter()
             .enumerate()
             .map(|(thread_index, mut exec_plan)| {
                 // Start timing for this thread
                 let thread_start_time = Instant::now();
-                
-                // First collect all tuples for this thread
-                let mut all_tuples: Vec<Tuple> = Vec::with_capacity(chunk_size);
-                
-                while let Some(tuple) = exec_plan.next(context)? {
-                    all_tuples.push(tuple);
-                }
-                
-                // Sort the tuples in memory based on the normalized key bytes
-                all_tuples.sort_by(|a, b| {
-                    let key_a = a.to_normalized_key_bytes(&sort_cols);
-                    let key_b = b.to_normalized_key_bytes(&sort_cols);
-                    key_a.cmp(&key_b)
-                });
-                
-                // Calculate sample quantiles from the sorted tuples
-                let mut quantiles = Vec::new();
-                if !all_tuples.is_empty() {
-                    for i in 0..num_quantiles {
-                        let idx = if i == num_quantiles - 1 {
-                            all_tuples.len() - 1
-                        } else {
-                            i * all_tuples.len() / num_quantiles
-                        };
-                        let tuple = &all_tuples[idx];
-                        let key = tuple.to_normalized_key_bytes(&sort_cols);
-                        quantiles.push(key);
-                    }
-                }
-                
-                // Get a container ID and create a run
-                let c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
-                let temp_container_key = ContainerKey {
+                let c_id_counter = c_id_counter.clone();
+                let mut runs: Vec<Arc<SortedRunStore<M>>> = Vec::new();
+                let mut run_quantiles = Vec::new();
+
+                let mut c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+                let mut temp_container_key = ContainerKey {
                     db_id: dest_c_key.db_id,
                     c_id,
                 };
-                
-                // Create an iterator for the sorted tuples
-                let tuple_iter = all_tuples.into_iter().map(|tuple| {
-                    let key = tuple.to_normalized_key_bytes(&sort_cols);
-                    let val = tuple.to_bytes();
-                    (key, val)
-                });
-                
-                // Create a SortedRunStore directly from the sorted tuples
-                let run = Arc::new(SortedRunStore::new(
-                    temp_container_key,
-                    mem_pool.clone(),
-                    tuple_iter,
-                ));
-                
+
+                // Use SortBuffer for in-memory sorting
+                let mut sort_buffer =
+                    SortBuffer::new(&mem_pool, temp_container_key, &policy, sort_cols.clone());
+
+                // Accumulators
+                let mut tuples_processed = 0;
+
+                // Batch size for collecting tuples before checking for overflow
+                const BATCH_CHECK_SIZE: usize = 100;
+                let mut batch_buffer: Vec<Tuple> = Vec::with_capacity(BATCH_CHECK_SIZE);
+
+                // Process tuples in batches
+                while let Some(tuple) = exec_plan.next(context)? {
+                    batch_buffer.push(tuple);
+
+                    // Process the batch when it reaches the target size
+                    if batch_buffer.len() >= BATCH_CHECK_SIZE {
+                        for tuple in batch_buffer.drain(..) {
+                            tuples_processed += 1;
+                            if !sort_buffer.append(&tuple) { //can we make this like a bulk insret this does not seem efficenient
+                                // Sort and process the current buffer
+                                sort_buffer.sort();
+                                let quantiles = sort_buffer.sample_quantiles(num_quantiles);
+                                run_quantiles.push(quantiles);
+
+                                // Create the run using our optimized SortedRunStore::new
+                                let output = Arc::new(SortedRunStore::new(
+                                    temp_container_key,
+                                    mem_pool.clone(),
+                                    SortBufferIter::new(&sort_buffer),
+                                ));
+                                runs.push(output);
+
+                                // Reset for the next run
+                                sort_buffer.reset();
+                                c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+                                temp_container_key = ContainerKey {
+                                    db_id: dest_c_key.db_id,
+                                    c_id,
+                                };
+                                sort_buffer.set_dest_c_key(temp_container_key);
+
+                                // Try appending the tuple again
+                                if !sort_buffer.append(&tuple) {
+                                    panic!("Record too large to fit in a page");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Process any remaining tuples in the batch buffer
+                for tuple in batch_buffer.drain(..) {
+                    tuples_processed += 1;
+                    if !sort_buffer.append(&tuple) {
+                        // Sort and process the current buffer
+                        sort_buffer.sort();
+                        let quantiles = sort_buffer.sample_quantiles(num_quantiles);
+                        run_quantiles.push(quantiles);
+
+                        // Create the run using optimized implementation
+                        let output = Arc::new(SortedRunStore::new(
+                            temp_container_key,
+                            mem_pool.clone(),
+                            SortBufferIter::new(&sort_buffer),
+                        ));
+                        runs.push(output);
+
+                        // Reset for the next run
+                        sort_buffer.reset();
+                        c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+                        temp_container_key = ContainerKey {
+                            db_id: dest_c_key.db_id,
+                            c_id,
+                        };
+                        sort_buffer.set_dest_c_key(temp_container_key);
+
+                        // Try appending the tuple again
+                        if !sort_buffer.append(&tuple) {
+                            panic!("Record too large to fit in a page");
+                        }
+                    }
+                }
+
+                // Process any remaining tuples in the sort_buffer
+                if !sort_buffer.ptrs.is_empty() {
+                    sort_buffer.sort();
+                    let quantiles = sort_buffer.sample_quantiles(num_quantiles);
+                    run_quantiles.push(quantiles);
+
+                    let output = Arc::new(SortedRunStore::new(
+                        temp_container_key,
+                        mem_pool.clone(),
+                        SortBufferIter::new(&sort_buffer),
+                    ));
+                    runs.push(output);
+                }
+
                 let thread_duration = thread_start_time.elapsed();
                 println!(
-                    "Thread {} processed {} tuples, generated 1 run in {:?}",
+                    "Thread {} processed {} tuples, generated {} runs in {:?}",
                     thread_index,
-                    run.len(),
+                    tuples_processed,
+                    runs.len(),
                     thread_duration
                 );
-    
-                // Create chunk quantiles
-                let run_quantiles = SingleRunQuantiles {
-                    num_quantiles,
-                    quantiles,
-                };
-                
-                Ok((vec![run], run_quantiles))
+
+                // Merge quantiles within this thread
+                let mut chunk_quantiles = SingleRunQuantiles::new(num_quantiles);
+                for q in run_quantiles {
+                    chunk_quantiles.merge(&q);
+                }
+
+                Ok((runs, chunk_quantiles))
             })
             .collect::<Result<Vec<_>, ExecError>>()?;
-    
+
         let parallel_duration = parallel_start_time.elapsed();
         println!("Parallel execution took {:?}", parallel_duration);
-    
+
         // Collect runs and merge quantiles
         let mut result_buffers: Vec<Arc<SortedRunStore<M>>> = Vec::new();
         let mut total_quantiles = SingleRunQuantiles::new(self.quantiles.num_quantiles);
-    
+
         for (chunk_runs, quantiles) in runs_and_quantiles {
             result_buffers.extend(chunk_runs);
             total_quantiles.merge(&quantiles);
         }
         self.quantiles = total_quantiles; // Update global quantiles
-    
-        // Verify we got the target number of runs
-        println!("Generated {} runs (target: {})", result_buffers.len(), target_run_count);
-    
+
         Ok(result_buffers)
     }
 
@@ -1227,7 +1274,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     .parse()
                     .expect("WORKING_MEM must be a valid number");
     
-                let working_mem: usize = working_mem / num_threads;
+                // let working_mem: usize = working_mem / num_threads;
                 println!("working mem limit {} runs", working_mem);
                 while runs.len() > 1 {
                     // Number of runs we can merge this step is min(runs.len(), working_mem)
