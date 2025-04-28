@@ -75,7 +75,7 @@ fn run_sort(memory_size: usize, bp: Arc<BufferPool>, query_id: u32) -> Result<()
 
     // Execute the pipeline.
     let _result = execute(db_id, &storage, exe, false);
-    println!("stats after {}", bp.stats());
+    // println!("stats after {}", bp.stats());
 
     println!("Sort execution completed successfully.");
 
@@ -101,7 +101,8 @@ fn main() {
             eprintln!("Error during sort execution: {}", e);
             std::process::exit(1);
         }
+        let _ = bp.clear_dirty_flags();
+        let _ = bp.flush_all_and_reset();
     }
-    let _ = bp.clear_dirty_flags();
-    let _ = bp.flush_all_and_reset();
+
 }

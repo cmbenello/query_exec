@@ -96,11 +96,11 @@ def get_default_configs():
             "quantile_method": "Parallel_BSS",
             "memory_type": "mnt/nvme",
             "query_options": [100],
-            "sf_options": [5],
+            "sf_options": [10],
             # "working_mem_options": [20, 50, 100, 200, 600, 1135],
-            "working_mem_options": [15000],
-            "bp_sizes": [5000000],
-            "num_threads_options": [1, 2, 4, 6, 8, 10, 12, 14, 16],
+            "working_mem_options": [60000],
+            "bp_sizes": [2500000],
+            "num_threads_options": [1,2,4,8,16,20,30,40],
             # "num_threads_options": [2, 4, 10, 12, 16]
             # "num_threads_options": [8, 16]
         },

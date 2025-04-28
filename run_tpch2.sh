@@ -1,21 +1,26 @@
 #!/bin/bash
-
 # Parameters
 BUFFER_POOL_SIZE=100000
 NUM_THREADS=16
-WORKING_MEM=1420
+WORKING_MEM=500
+QUERY=100
+SF=1
 
 # Set environment variables
 export NUM_THREADS=$NUM_THREADS
 export WORKING_MEM=$WORKING_MEM
-export QUANTILE_METHOD=TPCH_100_2
-#NUM_TUPLES=6005720 
-export NUM_TUPLES=12011440
-# export NUM_TUPLES=30028600
+export QUANTILE_METHOD=TPCH_100
+export DATA_SOURCE="TPCH"
+export SF=$SF
+export QUERY_NUM=$QUERY
+export NUM_TUPLES=$((6005720 * SF)) 
+# export NUM_TUPLES=$((3753888 * NUM_THREADS)) 
+
+BP_DIR="bp-dir-tpch-sf-$SF"
 
 # Clean up previous runs
-rm -rf bp-dir-tpch-sf-2/0/??*
+rm -rf "$BP_DIR/0/??*"
 
-cargo run --release --bin sort_run  -- -q 100 -p bp-dir-tpch-sf-2 -n 1 -b "$BUFFER_POOL_SIZE"
+cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE" 
 
-rm -rf bp-dir-tpch-sf-2/0/??*
+rm -rf "$BP_DIR/0/??*"
