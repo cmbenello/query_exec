@@ -1,11 +1,11 @@
 use clap::Parser;
+use fbtree::container::ContainerManager;
 use query_exec::MemPool;
 use query_exec::{
     prelude::{execute, load_db, to_logical, to_physical, MemoryPolicy, OnDiskPipelineGraph},
     BufferPool, ContainerId, OnDiskStorage,
 };
 use std::sync::Arc;
-use fbtree::container::ContainerManager;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -24,7 +24,7 @@ struct SortOpt {
     query_id: u32,
 
     /// Memory size per operator
-    #[clap(short = 'm', long = "memory-size", default_value = "100")]
+    #[clap(short = 'm', long = "memory-size", default_value = "10000")]
     memory_size: usize,
 
     /// Number of iterations for the benchmark
@@ -104,5 +104,4 @@ fn main() {
         let _ = bp.clear_dirty_flags();
         let _ = bp.flush_all_and_reset();
     }
-
 }

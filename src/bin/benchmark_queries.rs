@@ -1,6 +1,7 @@
 // src/bin/benchmark_queries.rs
 
 use clap::Parser;
+use fbtree::container::ContainerManager;
 use query_exec::{
     prelude::{execute, load_db, to_logical, to_physical, MemoryPolicy, OnDiskPipelineGraph},
     BufferPool, ContainerId, MemPool, OnDiskStorage,
@@ -8,8 +9,6 @@ use query_exec::{
 use std::sync::Arc;
 use std::time::Instant;
 use sysinfo::{CpuExt, System, SystemExt};
-use fbtree::container::ContainerManager;
-
 
 #[derive(Debug, Parser)]
 #[clap(

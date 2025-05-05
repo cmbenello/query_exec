@@ -1,4 +1,5 @@
 use clap::Parser;
+use fbtree::container::ContainerManager;
 use query_exec::{
     prelude::{
         create_db, create_table_from_sql, import_gensort, Catalog, ContainerDS, OnDiskStorage,
@@ -6,7 +7,6 @@ use query_exec::{
     BufferPool,
 };
 use std::{path::PathBuf, sync::Arc};
-use fbtree::container::ContainerManager;
 
 #[derive(Debug, Parser)]
 #[clap(name = "gensort", about = "Loads Gensort binary data into a new DB.")]

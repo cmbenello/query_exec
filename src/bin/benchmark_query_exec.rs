@@ -1,4 +1,5 @@
 use clap::Parser;
+use fbtree::container::ContainerManager;
 use query_exec::{
     prelude::{create_db, create_table_from_sql, import_csv, Catalog},
     BufferPool, ContainerDS, OnDiskStorage,
@@ -6,8 +7,6 @@ use query_exec::{
 use std::time::Instant;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use sysinfo::{CpuExt, ProcessExt, System, SystemExt};
-use fbtree::container::ContainerManager;
-
 
 #[derive(Debug, Parser)]
 #[clap(name = "TPC-H Benchmark", about = "Benchmarking query_exec vs DuckDB.")]

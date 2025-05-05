@@ -17,6 +17,7 @@ export QUERY_NUM=$QUERY
 export NUM_TUPLES=$((6005720 * SF))  
 # export NUM_TUPLES=$((1501530 * NUM_THREADS)) 
 export TARGET_RUN_COUNT=150000
+export BUFFER_POOL_SIZE=$BUFFER_POOL_SIZE
 
 BP_DIR="bp-dir-tpch-sf-$SF"
 

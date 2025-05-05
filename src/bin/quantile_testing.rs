@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 
-use csv::Writer; 
+use csv::Writer;
 use fbtree::container::ContainerManager;
 
 use serde::Deserialize;

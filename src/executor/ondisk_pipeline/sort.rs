@@ -544,47 +544,41 @@ impl<'a, M: MemPool> Iterator for SortBufferIter<'a, M> {
 
 pub struct MergeIter<I: Iterator<Item = (Vec<u8>, Vec<u8>)>> {
     run_iters: Vec<I>,
-    // Use indices into a buffer rather than storing actual values in heap
-    heap: BinaryHeap<Reverse<(usize, Vec<u8>)>>, // (run_index, key)
-    values: Vec<Option<Vec<u8>>>,                // Values corresponding to each iterator
+    // order by key, break ties with run-index
+    heap: BinaryHeap<Reverse<(Vec<u8>, usize)>>, // (key, run_idx)
+    values: Vec<Option<Vec<u8>>>,
 }
 
 impl<I: Iterator<Item = (Vec<u8>, Vec<u8>)>> MergeIter<I> {
     pub fn new(mut run_iters: Vec<I>) -> Self {
         let mut heap = BinaryHeap::with_capacity(run_iters.len());
         let mut values = vec![None; run_iters.len()];
-        
-        // Initialize heap with first element from each iterator
+
         for (i, iter) in run_iters.iter_mut().enumerate() {
             if let Some((k, v)) = iter.next() {
-                heap.push(Reverse((i, k)));
+                heap.push(Reverse((k, i)));
                 values[i] = Some(v);
             }
         }
-        
-        Self { run_iters, heap, values }
+
+        Self {
+            run_iters,
+            heap,
+            values,
+        }
     }
 }
 
 impl<I: Iterator<Item = (Vec<u8>, Vec<u8>)>> Iterator for MergeIter<I> {
     type Item = (Vec<u8>, Vec<u8>);
-
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(Reverse((run_idx, key))) = self.heap.pop() {
-            // Get the value corresponding to this key
-            let value = self.values[run_idx].take().unwrap();
-            let result = (key, value);
-            
-            // Fetch next item from this iterator
-            if let Some((next_key, next_value)) = self.run_iters[run_idx].next() {
-                self.heap.push(Reverse((run_idx, next_key)));
-                self.values[run_idx] = Some(next_value);
-            }
-            
-            Some(result)
-        } else {
-            None
+        let Reverse((key, run_idx)) = self.heap.pop()?; // ← key now first
+        let val = self.values[run_idx].take().unwrap();
+        if let Some((next_key, next_val)) = self.run_iters[run_idx].next() {
+            self.heap.push(Reverse((next_key, run_idx)));
+            self.values[run_idx] = Some(next_val);
         }
+        Some((key, val))
     }
 }
 
@@ -651,7 +645,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         println!("Total tuples estimated: {}", total_tuples);
 
         // Decide on the number of threads
-        let num_threads = 1;
+        let num_threads = 47;
 
         // Calculate chunk size
         let chunk_size = (total_tuples + num_threads - 1) / num_threads;
@@ -721,7 +715,8 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     if batch_buffer.len() >= BATCH_CHECK_SIZE {
                         for tuple in batch_buffer.drain(..) {
                             tuples_processed += 1;
-                            if !sort_buffer.append(&tuple) { //can we make this like a bulk insret this does not seem efficenient
+                            if !sort_buffer.append(&tuple) {
+                                //can we make this like a bulk insret this does not seem efficenient
                                 // Sort and process the current buffer
                                 sort_buffer.sort();
                                 let quantiles = sort_buffer.sample_quantiles(num_quantiles);
@@ -834,7 +829,6 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
 
         Ok(result_buffers)
     }
-
 
     fn run_generation_kraska(
         &mut self,
@@ -996,7 +990,6 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         }
     }
 
-
     fn run_merge_kraska(
         &mut self,
         policy: &Arc<MemoryPolicy>,
@@ -1124,7 +1117,6 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         }
     }
 
-
     //Run merge parllel but uses a big sorted store
     fn parallel_merge_step_bss(
         &self,
@@ -1136,26 +1128,26 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
     ) -> Result<Arc<BigSortedRunStore<M>>, ExecError> {
         let merge_start = Instant::now();
         let num_quantiles = num_threads + 1;
-    
+
         // (1) Compute global quantiles
         let mut global_quantiles = estimate_quantiles(&runs, num_quantiles, QuantileMethod::Actual);
         global_quantiles[0] = vec![0; 9];
         global_quantiles[num_quantiles - 1] = vec![255; 9];
         let global_quantiles = Arc::new(global_quantiles);
-    
+
         // (2) Process in parallel using thread::scope to avoid 'static lifetimes
         let merged_buffers = std::thread::scope(|scope| {
             let mut local_handles = Vec::with_capacity(num_threads);
-    
+
             for i in 0..num_threads {
                 // Clone what the thread needs
                 let runs = runs.clone();
                 let mem_pool = Arc::clone(mem_pool);
                 let global_quantiles = Arc::clone(&global_quantiles);
-                
+
                 let handle = scope.spawn(move || -> (usize, SortedRunStore<M>, usize) {
                     let thread_start = Instant::now();
-    
+
                     // Set up boundaries
                     let lower = global_quantiles[i].clone();
                     let mut upper = global_quantiles[i + 1].clone();
@@ -1174,11 +1166,11 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                             upper.insert(0, 1);
                         }
                     }
-    
+
                     // Create iterators
                     let lower_bytes = lower.clone();
                     let upper_bytes = upper.clone();
-                    
+
                     let run_time = Instant::now();
                     // Create the iterators for this range
                     let run_segments = runs
@@ -1188,21 +1180,21 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
 
                     let duration = run_time.elapsed();
                     println!("dureation {:?}, thread {}", duration, i);
-    
+
                     // Merge them - optimize by collecting batches before adding to store
                     let merge_iter = MergeIter::new(run_segments);
-                    
+
                     // Create a temp key for this thread's output
                     let temp_key = ContainerKey {
                         db_id: dest_c_key.db_id,
                         c_id: dest_c_key.c_id + i as u16,
                     };
-                    
+
                     // Use our new optimized method to create the store - letting SortedRunStore
                     // handle the batch allocation of pages rather than one at a time
                     let partial_store = SortedRunStore::new(temp_key, mem_pool, merge_iter);
                     let tuple_count = partial_store.len();
-    
+
                     if verbose {
                         println!(
                             "Thread {i} finished in {:.2}s ({tuple_count} records, {} pages)",
@@ -1210,13 +1202,13 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                             partial_store.num_pages()
                         );
                     }
-                    
+
                     (i, partial_store, tuple_count)
                 });
-                
+
                 local_handles.push(handle);
             }
-    
+
             // (3) Collect results
             let mut local_results = Vec::with_capacity(num_threads);
             for handle in local_handles {
@@ -1225,28 +1217,28 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     .expect("Thread panicked in parallel_merge_step_bss");
                 local_results.push(res);
             }
-    
+
             local_results
         });
-    
+
         // (4) Create the final BigSortedRunStore
         let mut bss = BigSortedRunStore::new();
         let mut total_tuples = 0;
         let mut merged_buffers = merged_buffers;
         merged_buffers.sort_by_key(|(i, _, _)| *i);
-    
+
         for (_, store, count) in merged_buffers {
             total_tuples += count;
             bss.add_store(Arc::new(store));
         }
-    
+
         if verbose {
             println!(
                 "Finished parallel merge in {:.2}s (total {total_tuples} records)",
                 merge_start.elapsed().as_secs_f64()
             );
         }
-    
+
         Ok(Arc::new(bss))
     }
 
@@ -1263,7 +1255,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         if verbose {
             println!("\nStarting hierarchical parallel merge operation...");
         }
-    
+
         let result = match policy.as_ref() {
             // Suppose we have a "fixed-size" memory limit that dictates the maximum fan-in
             MemoryPolicy::FixedSizeLimit(_) => {
@@ -1273,7 +1265,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     .unwrap_or_else(|_| "100".to_string()) // Default to 100
                     .parse()
                     .expect("WORKING_MEM must be a valid number");
-    
+
                 // let working_mem: usize = working_mem / num_threads;
                 println!("working mem limit {} runs", working_mem);
                 while runs.len() > 1 {
@@ -1286,19 +1278,17 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                             runs.len()
                         );
                     }
-    
+
                     // Drain that many runs from the front
                     let runs_to_merge = runs.drain(0..runs_to_merge_count).collect::<Vec<_>>();
                     merge_fanins.push(runs_to_merge.len());
-    
+
                     // Keep track of container keys we'll want to drop after merging
                     let containers_to_drop: Vec<ContainerKey> = runs_to_merge
                         .iter()
-                        .flat_map(|bss| {
-                            bss.sorted_run_stores.iter().map(|store| store.c_key)
-                        })
+                        .flat_map(|bss| bss.sorted_run_stores.iter().map(|store| store.c_key))
                         .collect();
-    
+
                     // Perform one parallel merge step for these runs
                     let merged_bss = self.parallel_merge_step_bss(
                         runs_to_merge,
@@ -1307,26 +1297,26 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                         num_threads,
                         verbose,
                     )?;
-                    
+
                     // Add the merged result back to `runs`
                     runs.push(merged_bss);
-                    
+
                     // Clean up the source containers to free buffer pool resources
                     for c_key in containers_to_drop {
                         // Ignore errors - best effort cleanup
                         let _ = mem_pool.drop_container(c_key);
                     }
                 }
-    
+
                 if verbose {
                     println!("\nDone: total merge steps = {}", merge_fanins.len());
                     println!("Fan-ins per step: {:?}", merge_fanins);
                 }
-    
+
                 // Now we have exactly 1 run left
                 runs.pop().unwrap()
             }
-    
+
             MemoryPolicy::Unbounded => {
                 if verbose {
                     println!("Using unbounded merge strategy (only one merge step).");
@@ -1334,15 +1324,14 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 // Just do a single step merging all runs
                 self.parallel_merge_step_bss(runs, mem_pool, dest_c_key, num_threads, verbose)?
             }
-    
+
             MemoryPolicy::Proportional(_rate) => {
                 unimplemented!("Proportional memory policy is not implemented yet");
             }
         };
-    
+
         Ok(result)
     }
-    
 
     fn compute_actual_quantiles(
         &self,
