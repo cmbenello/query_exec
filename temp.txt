@@ -1,0 +1,143 @@
+bp size 4000000
+Iteration 1
+Using ParallelBSS run generation strategy
+Total tuples estimated: 60057200
+Thread 5 processed 1501430 tuples, generated 3 runs in 14.117774185s
+Thread 34 processed 1501430 tuples, generated 3 runs in 14.17330569s
+Thread 18 processed 1501430 tuples, generated 3 runs in 14.296108099s
+Thread 39 processed 1501430 tuples, generated 3 runs in 14.330883297s
+Thread 0 processed 1501430 tuples, generated 3 runs in 14.367923271s
+Thread 6 processed 1501430 tuples, generated 3 runs in 14.395175966s
+Thread 1 processed 1501430 tuples, generated 3 runs in 14.408632863s
+Thread 28 processed 1501430 tuples, generated 3 runs in 14.431539402s
+Thread 8 processed 1501430 tuples, generated 3 runs in 14.441795368s
+Thread 17 processed 1501430 tuples, generated 3 runs in 14.453544106s
+Thread 14 processed 1501430 tuples, generated 3 runs in 14.470206861s
+Thread 12 processed 1501430 tuples, generated 3 runs in 14.472428025s
+Thread 38 processed 1501430 tuples, generated 3 runs in 14.478275371s
+Thread 37 processed 1501430 tuples, generated 3 runs in 14.484930843s
+Thread 11 processed 1501430 tuples, generated 3 runs in 14.528691929s
+Thread 15 processed 1501430 tuples, generated 3 runs in 14.571454633s
+Thread 33 processed 1501430 tuples, generated 3 runs in 14.578817104s
+Thread 36 processed 1501430 tuples, generated 3 runs in 14.580986807s
+Thread 16 processed 1501430 tuples, generated 3 runs in 14.708381989s
+Thread 32 processed 1501430 tuples, generated 3 runs in 14.740265715s
+Thread 23 processed 1501430 tuples, generated 3 runs in 14.767345543s
+Thread 19 processed 1501430 tuples, generated 3 runs in 14.885347523s
+Thread 4 processed 1501430 tuples, generated 3 runs in 14.978523885s
+Thread 27 processed 1501430 tuples, generated 3 runs in 15.039779699s
+Thread 3 processed 1501430 tuples, generated 3 runs in 15.074496315s
+Thread 22 processed 1501430 tuples, generated 3 runs in 15.080110359s
+Thread 2 processed 1501430 tuples, generated 3 runs in 15.108961986s
+Thread 29 processed 1501430 tuples, generated 3 runs in 15.116088476s
+Thread 9 processed 1501430 tuples, generated 3 runs in 15.142380424s
+Thread 21 processed 1501430 tuples, generated 3 runs in 15.191872929s
+Thread 7 processed 1501430 tuples, generated 3 runs in 15.192129207s
+Thread 35 processed 1501430 tuples, generated 3 runs in 15.295272589s
+Thread 31 processed 1501430 tuples, generated 3 runs in 15.308360803s
+Thread 26 processed 1501430 tuples, generated 3 runs in 15.330330743s
+Thread 24 processed 1501430 tuples, generated 3 runs in 15.338626652s
+Thread 30 processed 1501430 tuples, generated 3 runs in 15.360237097s
+Thread 10 processed 1501430 tuples, generated 3 runs in 15.362902992s
+Thread 20 processed 1501430 tuples, generated 3 runs in 15.392176931s
+Thread 25 processed 1501430 tuples, generated 3 runs in 15.415874265s
+Thread 13 processed 1501430 tuples, generated 3 runs in 15.477487026s
+Parallel execution took 15.485033055s
+generation duration 15.485202546s
+
+Pre-merge storage statistics:
+  Total pages used: 1156480
+  Total records: 60057200
+  Average records per page: 51.93
+Using Parallel BSS merge strategy
+
+Starting hierarchical parallel merge operation...
+working mem limit 150000 runs
+
+Merging 120 runs (out of 120 total).
+Using actual quantiles from file: quantile_data/TPCH/QID-100_SF-10_NUMTUPLES-60057200.json
+dureation 7.236239375s, thread 11
+dureation 7.259780548s, thread 6
+dureation 7.26509338s, thread 26
+dureation 7.266967625s, thread 33
+dureation 7.270705023s, thread 31
+dureation 7.274293647s, thread 24
+dureation 7.279509104s, thread 9
+dureation 7.277770329s, thread 35
+dureation 7.279615901s, thread 30
+dureation 7.296018475s, thread 18
+dureation 7.300095175s, thread 3
+dureation 7.297292179s, thread 27
+dureation 7.299801611s, thread 16
+dureation 7.301483932s, thread 2
+dureation 7.301189903s, thread 17
+dureation 7.30458597s, thread 28
+dureation 7.310043589s, thread 4
+dureation 7.312056228s, thread 39
+dureation 7.33465675s, thread 0
+dureation 7.329024784s, thread 36
+dureation 7.338242721s, thread 13
+dureation 7.340317855s, thread 15
+dureation 7.33930613s, thread 25
+dureation 7.343806945s, thread 10
+dureation 7.346002995s, thread 7
+dureation 7.358227564s, thread 1
+dureation 7.355880236s, thread 21
+dureation 7.361329737s, thread 19
+dureation 7.358260823s, thread 37
+dureation 7.370827239s, thread 20
+dureation 7.371875025s, thread 38
+dureation 7.379603679s, thread 12
+dureation 7.374524174s, thread 34
+dureation 7.388052182s, thread 5
+dureation 7.39932446s, thread 8
+dureation 7.398358289s, thread 23
+dureation 7.399850408s, thread 22
+dureation 7.422715885s, thread 14
+dureation 7.423079842s, thread 32
+dureation 7.424741218s, thread 29
+Thread 23 finished in 9.23s (1501480 records, 28912 pages)
+Thread 21 finished in 9.33s (1501600 records, 28912 pages)
+Thread 1 finished in 9.41s (1501480 records, 28912 pages)
+Thread 22 finished in 9.54s (1501640 records, 28912 pages)
+Thread 32 finished in 9.57s (1500920 records, 28896 pages)
+Thread 27 finished in 9.62s (1501960 records, 28912 pages)
+Thread 13 finished in 9.76s (1501520 records, 28912 pages)
+Thread 6 finished in 9.77s (1500920 records, 28896 pages)
+Thread 11 finished in 9.78s (1501200 records, 28912 pages)
+Thread 5 finished in 9.85s (1501640 records, 28912 pages)
+Thread 25 finished in 9.85s (1501960 records, 28912 pages)
+Thread 34 finished in 9.86s (1501600 records, 28912 pages)
+Thread 28 finished in 9.86s (1501240 records, 28896 pages)
+Thread 10 finished in 9.88s (1501600 records, 28912 pages)
+Thread 33 finished in 9.88s (1501840 records, 28912 pages)
+Thread 4 finished in 9.92s (1501280 records, 28912 pages)
+Thread 8 finished in 9.92s (1501560 records, 28912 pages)
+Thread 7 finished in 9.93s (1501800 records, 28928 pages)
+Thread 38 finished in 10.01s (1501440 records, 28912 pages)
+Thread 39 finished in 10.04s (1501600 records, 28912 pages)
+Thread 36 finished in 10.23s (1501280 records, 28896 pages)
+Thread 26 finished in 10.40s (1500680 records, 28896 pages)
+Thread 29 finished in 10.52s (1501880 records, 28912 pages)
+Thread 14 finished in 10.55s (1501240 records, 28912 pages)
+Thread 2 finished in 10.62s (1501000 records, 28896 pages)
+Thread 30 finished in 10.68s (1501160 records, 28896 pages)
+Thread 35 finished in 10.87s (1501480 records, 28912 pages)
+Thread 0 finished in 10.99s (1501080 records, 28912 pages)
+Thread 15 finished in 11.01s (1501160 records, 28896 pages)
+Thread 9 finished in 11.03s (1501400 records, 28912 pages)
+Thread 24 finished in 11.05s (1500840 records, 28896 pages)
+Thread 18 finished in 11.08s (1501080 records, 28896 pages)
+Thread 17 finished in 11.08s (1501440 records, 28912 pages)
+Thread 20 finished in 11.09s (1501040 records, 28896 pages)
+Thread 37 finished in 11.09s (1501400 records, 28912 pages)
+Thread 19 finished in 11.12s (1502000 records, 28928 pages)
+Thread 12 finished in 11.14s (1501600 records, 28912 pages)
+Thread 31 finished in 11.13s (1501600 records, 28912 pages)
+Thread 3 finished in 11.15s (1501880 records, 28912 pages)
+Thread 16 finished in 11.15s (1501680 records, 28912 pages)
+Finished parallel merge in 11.15s (total 60057200 records)
+
+Done: total merge steps = 1
+Fan-ins per step: [120]
+merge duration 11.233138189s

@@ -1450,6 +1450,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         dest_c_key: ContainerKey,
         strategy: MergeStrategy,
     ) -> Result<Arc<OnDiskBuffer<T, M>>, ExecError> {
+        println!("bp stats before {}", mem_pool.stats());
         // -------------- Run Generation Phase --------------
         let start_generation = Instant::now();
         let runs = match strategy {
@@ -1464,6 +1465,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         }?;
         let duration_generation = start_generation.elapsed();
         println!("generation duration {:?}", duration_generation);
+        println!("bp stats after rg {}", mem_pool.stats());
 
         // Join the runs from the run generation into one big sorted store xtx update here to control the size of the runs
         let mut big_runs = Vec::new();
@@ -1504,6 +1506,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             }
         };
         let duration_merge = start_merge.elapsed();
+        println!("bp stats after merge {}", mem_pool.stats());
 
         // // Print post-merge statistics
         // let post_merge_stats = StorageStats {
