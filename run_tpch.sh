@@ -1,7 +1,9 @@
 #!/bin/bash
 # Parameters
 BUFFER_POOL_SIZE=1000000
-NUM_THREADS=20
+NUM_THREADS=2
+# MEMORY_SIZE=$BUFFER_POOL_SIZE
+MEMORY_SIZE=10000
 # WORKING_MEM=142000
 WORKING_MEM=150000
 QUERY=100
@@ -24,6 +26,6 @@ BP_DIR="bp-dir-tpch-sf-$SF"
 # Clean up previous runs
 rm -rf "$BP_DIR/0/??*"
 
-cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE" 
+cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE" -m "$MEMORY_SIZE"
 
 rm -rf "$BP_DIR/0/??*"

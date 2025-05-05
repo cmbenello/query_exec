@@ -14,6 +14,9 @@ WORKING_MEM=$4
 QUERY=$5
 SF=$6
 
+
+MEMORY_SIZE=10000
+
 # Set environment variables
 export NUM_THREADS=$NUM_THREADS
 export WORKING_MEM=$WORKING_MEM
@@ -28,7 +31,7 @@ case $DATA_SOURCE in
         export NUM_TUPLES=$((6005720 * SF))
         BP_DIR="bp-dir-tpch-sf-${SF}"
         rm -rf "$BP_DIR/0/??*"
-        cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE"
+        cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE" -m "$MEMORY_SIZE" 
         ;;
     "GENSORT")
         export NUM_TUPLES=$SF

@@ -727,9 +727,16 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                                 let quantiles = sort_buffer.sample_quantiles(num_quantiles);
                                 run_quantiles.push(quantiles);
     
+
+                                let output_c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+                                let output_container_key = ContainerKey {
+                                    db_id: dest_c_key.db_id,
+                                    c_id: output_c_id,
+                                };
+
                                 // Create the run using our optimized SortedRunStore::new
                                 let output = Arc::new(SortedRunStore::new(
-                                    temp_container_key,
+                                    output_container_key,
                                     mem_pool.clone(),
                                     SortBufferIter::new(&sort_buffer),
                                 ));
@@ -797,9 +804,16 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     sort_buffer.sort();
                     let quantiles = sort_buffer.sample_quantiles(num_quantiles);
                     run_quantiles.push(quantiles);
-    
+
+                    let output_c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
+                    let output_container_key = ContainerKey {
+                        db_id: dest_c_key.db_id,
+                        c_id: output_c_id,
+                    };
+
+                    // Create the run using our optimized SortedRunStore::new
                     let output = Arc::new(SortedRunStore::new(
-                        temp_container_key,
+                        output_container_key,
                         mem_pool.clone(),
                         SortBufferIter::new(&sort_buffer),
                     ));
@@ -1455,7 +1469,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         dest_c_key: ContainerKey,
         strategy: MergeStrategy,
     ) -> Result<Arc<OnDiskBuffer<T, M>>, ExecError> {
-        println!("bp stats before {}", mem_pool.stats());
+        // println!("bp stats before {}", mem_pool.stats());
         // -------------- Run Generation Phase --------------
         let start_generation = Instant::now();
         let runs = match strategy {
@@ -1470,7 +1484,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         }?;
         let duration_generation = start_generation.elapsed();
         println!("generation duration {:?}", duration_generation);
-        // println!("bp stats after rg {}", mem_pool.stats());
+        println!("bp stats after rg {}", mem_pool.stats());
 
         // Join the runs from the run generation into one big sorted store xtx update here to control the size of the runs
         let mut big_runs = Vec::new();

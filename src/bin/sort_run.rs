@@ -5,6 +5,7 @@ use query_exec::{
     prelude::{execute, load_db, to_logical, to_physical, MemoryPolicy, OnDiskPipelineGraph},
     BufferPool, ContainerId, OnDiskStorage,
 };
+use std::env;
 use std::sync::Arc;
 
 #[derive(Debug, Parser)]
@@ -24,7 +25,7 @@ struct SortOpt {
     query_id: u32,
 
     /// Memory size per operator
-    #[clap(short = 'm', long = "memory-size", default_value = "100")]
+    #[clap(short = 'm', long = "memory-size", default_value = "10000")]
     memory_size: usize,
 
     /// Number of iterations for the benchmark
@@ -40,6 +41,12 @@ fn run_sort(memory_size: usize, bp: Arc<BufferPool>, query_id: u32) -> Result<()
     let temp_c_id = 100017;
     let exclude_last_pipeline = true;
 
+
+    let num_threads = env::var("NUM_THREADS")
+        .unwrap_or_else(|_| "1".to_string())
+        .parse::<usize>()
+        .unwrap_or(1);
+    let memory_size = memory_size / num_threads;
     // Load the on-disk storage from the BufferPool.
     let storage = Arc::new(OnDiskStorage::load(&bp));
 
