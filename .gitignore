@@ -28,3 +28,5 @@ gensort/pointers
 #xtx update
 gensort/skewed
 distributions
+temp*
+*.txt
