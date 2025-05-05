@@ -24,7 +24,7 @@ struct SortOpt {
     query_id: u32,
 
     /// Memory size per operator
-    #[clap(short = 'm', long = "memory-size", default_value = "10000")]
+    #[clap(short = 'm', long = "memory-size", default_value = "100")]
     memory_size: usize,
 
     /// Number of iterations for the benchmark
