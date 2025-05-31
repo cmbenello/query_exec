@@ -643,16 +643,16 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             .parse()
             .expect("NUM_TUPLES must be a valid number");
         println!("Total tuples estimated: {}", total_tuples);
-    
+
         // Decide on the number of threads
         let num_threads = env::var("NUM_THREADS")
             .unwrap_or_else(|_| "8".to_string())
             .parse()
             .expect("NUM_THREADS must be a valid number");
-    
+
         // Calculate chunk size
         let chunk_size = (total_tuples + num_threads - 1) / num_threads;
-    
+
         // Generate ranges
         let ranges: Vec<(usize, usize)> = (0..num_threads)
             .map(|i| {
@@ -665,23 +665,23 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 (start, end)
             })
             .collect();
-    
+
         // Create execution plans for each range
         let plans: Vec<_> = ranges
             .iter()
             .map(|&(start, end)| self.exec_plan.clone_with_range(start, end))
             .collect::<Vec<_>>();
-    
+
         // Prepare for parallel execution
         let c_id_counter = Arc::new(AtomicU16::new(321)); // Starting container ID
         let num_quantiles = self.quantiles.num_quantiles;
         let sort_cols = self.sort_cols.clone();
         let policy = policy.clone();
         let mem_pool = mem_pool.clone();
-    
+
         // Start timing for parallel execution
         let parallel_start_time = Instant::now();
-    
+
         // Process each plan in parallel
         let runs_and_quantiles = plans
             .into_par_iter()
@@ -692,31 +692,31 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 let c_id_counter = c_id_counter.clone();
                 let mut runs: Vec<Arc<SortedRunStore<M>>> = Vec::new();
                 let mut run_quantiles = Vec::new();
-                
+
                 // Track containers to drop later
                 let mut containers_to_drop: Vec<ContainerKey> = Vec::new();
-    
+
                 let mut c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
                 let mut temp_container_key = ContainerKey {
                     db_id: dest_c_key.db_id,
                     c_id,
                 };
-    
+
                 // Use SortBuffer for in-memory sorting
                 let mut sort_buffer =
                     SortBuffer::new(&mem_pool, temp_container_key, &policy, sort_cols.clone());
-    
+
                 // Accumulators
                 let mut tuples_processed = 0;
-    
+
                 // Batch size for collecting tuples before checking for overflow
                 const BATCH_CHECK_SIZE: usize = 100; // Increased from 100 for better efficiency
                 let mut batch_buffer: Vec<Tuple> = Vec::with_capacity(BATCH_CHECK_SIZE);
-    
+
                 // Process tuples in batches
                 while let Some(tuple) = exec_plan.next(context)? {
                     batch_buffer.push(tuple);
-    
+
                     // Process the batch when it reaches the target size
                     if batch_buffer.len() >= BATCH_CHECK_SIZE {
                         for tuple in batch_buffer.drain(..) {
@@ -726,7 +726,6 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                                 sort_buffer.sort();
                                 let quantiles = sort_buffer.sample_quantiles(num_quantiles);
                                 run_quantiles.push(quantiles);
-    
 
                                 let output_c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
                                 let output_container_key = ContainerKey {
@@ -741,10 +740,10 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                                     SortBufferIter::new(&sort_buffer),
                                 ));
                                 runs.push(output);
-                                
+
                                 // Add container to the drop list
                                 containers_to_drop.push(temp_container_key);
-    
+
                                 // Reset for the next run
                                 sort_buffer.reset();
                                 c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
@@ -753,7 +752,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                                     c_id,
                                 };
                                 sort_buffer.set_dest_c_key(temp_container_key);
-    
+
                                 // Try appending the tuple again
                                 if !sort_buffer.append(&tuple) {
                                     panic!("Record too large to fit in a page");
@@ -762,7 +761,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                         }
                     }
                 }
-    
+
                 // Process any remaining tuples in the batch buffer
                 for tuple in batch_buffer.drain(..) {
                     tuples_processed += 1;
@@ -771,7 +770,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                         sort_buffer.sort();
                         let quantiles = sort_buffer.sample_quantiles(num_quantiles);
                         run_quantiles.push(quantiles);
-    
+
                         // Create the run using optimized implementation
                         let output = Arc::new(SortedRunStore::new(
                             temp_container_key,
@@ -779,10 +778,10 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                             SortBufferIter::new(&sort_buffer),
                         ));
                         runs.push(output);
-                        
+
                         // Add container to the drop list
                         containers_to_drop.push(temp_container_key);
-    
+
                         // Reset for the next run
                         sort_buffer.reset();
                         c_id = c_id_counter.fetch_add(1, Ordering::SeqCst);
@@ -791,14 +790,14 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                             c_id,
                         };
                         sort_buffer.set_dest_c_key(temp_container_key);
-    
+
                         // Try appending the tuple again
                         if !sort_buffer.append(&tuple) {
                             panic!("Record too large to fit in a page");
                         }
                     }
                 }
-    
+
                 // Process any remaining tuples in the sort_buffer
                 if !sort_buffer.ptrs.is_empty() {
                     sort_buffer.sort();
@@ -818,11 +817,11 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                         SortBufferIter::new(&sort_buffer),
                     ));
                     runs.push(output);
-                    
+
                     // Add the final container to the drop list
                     containers_to_drop.push(temp_container_key);
                 }
-                
+
                 // Clean up resources by dropping all temporary containers
                 // We don't drop immediately after creating a run to ensure access during debugging
                 // but drop all at the end of thread execution
@@ -830,7 +829,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     // Best-effort cleanup, ignore errors
                     let _ = mem_pool.drop_container(c_key);
                 }
-    
+
                 let thread_duration = thread_start_time.elapsed();
                 println!(
                     "Thread {} processed {} tuples, generated {} runs in {:?}",
@@ -839,30 +838,30 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     runs.len(),
                     thread_duration
                 );
-    
+
                 // Merge quantiles within this thread
                 let mut chunk_quantiles = SingleRunQuantiles::new(num_quantiles);
                 for q in run_quantiles {
                     chunk_quantiles.merge(&q);
                 }
-    
+
                 Ok((runs, chunk_quantiles))
             })
             .collect::<Result<Vec<_>, ExecError>>()?;
-    
+
         let parallel_duration = parallel_start_time.elapsed();
         println!("Parallel execution took {:?}", parallel_duration);
-    
+
         // Collect runs and merge quantiles
         let mut result_buffers: Vec<Arc<SortedRunStore<M>>> = Vec::new();
         let mut total_quantiles = SingleRunQuantiles::new(self.quantiles.num_quantiles);
-    
+
         for (chunk_runs, quantiles) in runs_and_quantiles {
             result_buffers.extend(chunk_runs);
             total_quantiles.merge(&quantiles);
         }
         self.quantiles = total_quantiles; // Update global quantiles
-    
+
         Ok(result_buffers)
     }
 
@@ -1210,11 +1209,9 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     let run_time = Instant::now();
                     // Create the iterators for this range
                     let run_segments: Vec<_> = runs
-                    .iter()
-                    .map(|r| BigSortedRunStore::scan_range_arc(r,
-                                                               &lower_bytes,
-                                                               &upper_bytes))
-                    .collect();
+                        .iter()
+                        .map(|r| BigSortedRunStore::scan_range_arc(r, &lower_bytes, &upper_bytes))
+                        .collect();
 
                     let duration = run_time.elapsed();
                     println!("dureation {:?}, thread {}", duration, i);
@@ -1484,7 +1481,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         }?;
         let duration_generation = start_generation.elapsed();
         println!("generation duration {:?}", duration_generation);
-        println!("bp stats after rg {}", mem_pool.stats());
+        // println!("bp stats after rg {}", mem_pool.stats());
 
         // Join the runs from the run generation into one big sorted store xtx update here to control the size of the runs
         let mut big_runs = Vec::new();
@@ -1525,7 +1522,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             }
         };
         let duration_merge = start_merge.elapsed();
-        println!("bp stats after merge {}", mem_pool.stats());
+        // println!("bp stats after merge {}", mem_pool.stats());
 
         // // Print post-merge statistics
         // let post_merge_stats = StorageStats {
@@ -1545,30 +1542,30 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         println!("merge duration {:?}", duration_merge);
         if verbose {
             verify_sorted_store_full_bss(final_run.clone(), &[(0, true, false)], false, 1);
-        }
 
-        let data_source = env::var("DATA_SOURCE").unwrap_or_else(|_| (&"TPCH").to_string());
-        let sf = env::var("SF")
-            .unwrap_or_else(|_| 1.to_string())
-            .parse()
-            .expect("SF must be a valid number");
-        let query_num = env::var("QUERY_NUM")
-            .unwrap_or_else(|_| 100.to_string())
-            .parse()
-            .expect("QUERY_NUM must be a valid number");
-        let num_tuples = env::var("NUM_TUPLES")
-            .unwrap_or_else(|_| 6005720.to_string())
-            .parse()
-            .expect("NUM_TUPLES must be a valid number");
-        let max_num_quantiles = 50;
-        write_quantiles_to_json_file(
-            final_run.clone(),
-            &data_source,
-            sf,
-            query_num,
-            num_tuples,
-            max_num_quantiles,
-        )?;
+            let data_source = env::var("DATA_SOURCE").unwrap_or_else(|_| (&"TPCH").to_string());
+            let sf = env::var("SF")
+                .unwrap_or_else(|_| 1.to_string())
+                .parse()
+                .expect("SF must be a valid number");
+            let query_num = env::var("QUERY_NUM")
+                .unwrap_or_else(|_| 100.to_string())
+                .parse()
+                .expect("QUERY_NUM must be a valid number");
+            let num_tuples = env::var("NUM_TUPLES")
+                .unwrap_or_else(|_| 6005720.to_string())
+                .parse()
+                .expect("NUM_TUPLES must be a valid number");
+            let max_num_quantiles = 50;
+            write_quantiles_to_json_file(
+                final_run.clone(),
+                &data_source,
+                sf,
+                query_num,
+                num_tuples,
+                max_num_quantiles,
+            )?;
+        }
 
         Ok(Arc::new(OnDiskBuffer::BigSortedRunStore(final_run)))
     }

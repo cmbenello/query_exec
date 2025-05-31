@@ -41,7 +41,6 @@ fn run_sort(memory_size: usize, bp: Arc<BufferPool>, query_id: u32) -> Result<()
     let temp_c_id = 100017;
     let exclude_last_pipeline = true;
 
-
     let num_threads = env::var("NUM_THREADS")
         .unwrap_or_else(|_| "1".to_string())
         .parse::<usize>()
