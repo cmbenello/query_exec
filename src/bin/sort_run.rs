@@ -103,7 +103,7 @@ fn main() {
     // Run the sort benchmark for the specified number of iterations.
     for itr in 0..opt.num_iterations {
         println!("Iteration {}", itr + 1);
-        if let Err(e) = run_sort(opt.memory_size, bp.clone(), opt.query_id) {
+        if let Err(e) = run_sort(opt.buffer_pool_size, bp.clone(), opt.query_id) {
             eprintln!("Error during sort execution: {}", e);
             std::process::exit(1);
         }

@@ -7,6 +7,7 @@
 // 2 byte: slot count
 // 2 byte: free space offset
 
+use fbtree::bp::MemPoolStatus;
 use core::panic;
 use rayon::{iter, prelude::*, result};
 use std::env;
@@ -383,9 +384,7 @@ impl<M: MemPool> SortBuffer<M> {
     pub fn reset(&mut self) {
         self.ptrs.clear();
         self.current_page_idx = 0;
-        for page in &mut self.data_buffer {
-            page.init();
-        }
+        self.data_buffer.clear();
     }
 
     pub fn append(&mut self, tuple: &Tuple) -> bool {
@@ -394,12 +393,15 @@ impl<M: MemPool> SortBuffer<M> {
 
         if self.data_buffer.is_empty() {
             self.current_page_idx = 0;
-            let frame = self
-                .mem_pool
-                .create_new_page_for_write(self.dest_c_key)
-                .unwrap();
-            let mut frame =
-                unsafe { std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame) };
+            let frame = match self.mem_pool.create_new_page_for_write(self.dest_c_key) {
+                Ok(f)                          => f,
+                Err(MemPoolStatus::CannotEvictPage)=> return false,  // let caller flush & retry
+                Err(e)                         => panic!("mem-pool error: {e:?}"),
+            };
+        
+            let mut frame = unsafe {
+                std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame)
+            };
             frame.init();
             self.data_buffer.push(frame);
         }
@@ -645,7 +647,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         println!("Total tuples estimated: {}", total_tuples);
 
         // Decide on the number of threads
-        let num_threads = env::var("NUM_THREADS")
+        let num_threads: usize = env::var("NUM_THREADS")
             .unwrap_or_else(|_| "8".to_string())
             .parse()
             .expect("NUM_THREADS must be a valid number");
@@ -653,6 +655,15 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         // Calculate chunk size
         let chunk_size = (total_tuples + num_threads - 1) / num_threads;
 
+        let working_mem_pages = match policy.as_ref() {
+            MemoryPolicy::FixedSizeLimit(p) => *p,
+            _ => unreachable!(),
+        };
+    
+        // split budget evenly among the rayon threads, but *never* exceed the pool
+        let per_thread_pages = working_mem_pages / num_threads.max(1);
+    
+        let thread_policy = Arc::new(MemoryPolicy::FixedSizeLimit(per_thread_pages));
         // Generate ranges
         let ranges: Vec<(usize, usize)> = (0..num_threads)
             .map(|i| {
@@ -704,7 +715,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
 
                 // Use SortBuffer for in-memory sorting
                 let mut sort_buffer =
-                    SortBuffer::new(&mem_pool, temp_container_key, &policy, sort_cols.clone());
+                    SortBuffer::new(&mem_pool, temp_container_key, &thread_policy, sort_cols.clone());
 
                 // Accumulators
                 let mut tuples_processed = 0;
@@ -1542,30 +1553,30 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         println!("merge duration {:?}", duration_merge);
         if verbose {
             verify_sorted_store_full_bss(final_run.clone(), &[(0, true, false)], false, 1);
-
+            
             let data_source = env::var("DATA_SOURCE").unwrap_or_else(|_| (&"TPCH").to_string());
             let sf = env::var("SF")
-                .unwrap_or_else(|_| 1.to_string())
-                .parse()
-                .expect("SF must be a valid number");
-            let query_num = env::var("QUERY_NUM")
-                .unwrap_or_else(|_| 100.to_string())
-                .parse()
-                .expect("QUERY_NUM must be a valid number");
-            let num_tuples = env::var("NUM_TUPLES")
-                .unwrap_or_else(|_| 6005720.to_string())
-                .parse()
-                .expect("NUM_TUPLES must be a valid number");
-            let max_num_quantiles = 50;
-            write_quantiles_to_json_file(
-                final_run.clone(),
-                &data_source,
-                sf,
-                query_num,
-                num_tuples,
-                max_num_quantiles,
-            )?;
-        }
+            .unwrap_or_else(|_| 1.to_string())
+            .parse()
+            .expect("SF must be a valid number");
+        let query_num = env::var("QUERY_NUM")
+            .unwrap_or_else(|_| 100.to_string())
+            .parse()
+            .expect("QUERY_NUM must be a valid number");
+        let num_tuples = env::var("NUM_TUPLES")
+            .unwrap_or_else(|_| 6005720.to_string())
+            .parse()
+            .expect("NUM_TUPLES must be a valid number");
+        let max_num_quantiles = 50;
+        write_quantiles_to_json_file(
+            final_run.clone(),
+            &data_source,
+            sf,
+            query_num,
+            num_tuples,
+            max_num_quantiles,
+        )?;
+    }   
 
         Ok(Arc::new(OnDiskBuffer::BigSortedRunStore(final_run)))
     }
