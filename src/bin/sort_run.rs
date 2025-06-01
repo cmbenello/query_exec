@@ -41,7 +41,6 @@ fn run_sort(memory_size: usize, bp: Arc<BufferPool>, query_id: u32) -> Result<()
     let temp_c_id = 100017;
     let exclude_last_pipeline = true;
 
-
     let num_threads = env::var("NUM_THREADS")
         .unwrap_or_else(|_| "1".to_string())
         .parse::<usize>()
@@ -104,7 +103,7 @@ fn main() {
     // Run the sort benchmark for the specified number of iterations.
     for itr in 0..opt.num_iterations {
         println!("Iteration {}", itr + 1);
-        if let Err(e) = run_sort(opt.memory_size, bp.clone(), opt.query_id) {
+        if let Err(e) = run_sort(opt.buffer_pool_size, bp.clone(), opt.query_id) {
             eprintln!("Error during sort execution: {}", e);
             std::process::exit(1);
         }
