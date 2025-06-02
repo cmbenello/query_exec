@@ -1135,23 +1135,29 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
     /// Performs a single parallel merge step combining multiple sorted runs into a BigSortedRunStore
     fn run_merge_parallel_bss(
         &self,
-        policy: &Arc<MemoryPolicy>,
-        mut runs: Vec<Arc<BigSortedRunStore<M>>>,
-        mem_pool: &Arc<M>,
-        dest_c_key: ContainerKey,
-        num_threads: usize,
-        verbose: bool,
-    ) -> Result<Arc<BigSortedRunStore<M>>, ExecError> {
-        if verbose {
-            println!("\n⟪ hierarchical merge begins ⟫");
-        }
+        policy      : &Arc<MemoryPolicy>,
+        mut runs    : Vec<Arc<BigSortedRunStore<M>>>,
+        mem_pool    : &Arc<M>,
+        dest_c_key  : ContainerKey,
+        num_threads : usize,
+        verbose     : bool,
+    ) -> Result<Arc<BigSortedRunStore<M>>, ExecError>
+    {
+        //----------------------------------------------------------------------
+        // 0)  Unique container-ID generator – never reuse IDs across rounds
+        //----------------------------------------------------------------------
+        //
+        // Reserve a gap *well above* the IDs used during run-generation
+        // (each worker started at `tid * 2000`). 10 000 is arbitrary,
+        // only has to be large enough not to collide.
+        //
+        let mut next_cid: u16 = dest_c_key.c_id.saturating_add(10_000);
     
-        /* --------------------------------------------------------- */
-        /* 1.  How many workers can our buffer-pool actually feed ?   */
-        /* --------------------------------------------------------- */
-    
-        const MIN_PAGES_PER_WORKER: usize = 3; // 1 read, 1 write, +head-room
-        let pool_pages  = mem_pool.capacity();          // use your own accessor
+        //----------------------------------------------------------------------
+        // 1)  Figure out how many workers the buffer pool can realistically feed
+        //----------------------------------------------------------------------
+        const MIN_PAGES_PER_WORKER: usize = 3;            // 1 read, 1 write, slack
+        let pool_pages  = mem_pool.capacity();            // your own accessor
         let max_workers = (pool_pages / MIN_PAGES_PER_WORKER).max(1);
         let workers     = num_threads.min(max_workers);
     
@@ -1161,69 +1167,84 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 num_threads, workers, pool_pages
             );
         }
-        
     
-        /* --------------------------------------------------------- */
-        /* 2.  How many input runs may participate in *one* step ?   */
-        /* --------------------------------------------------------- */
-    
-        let mut working_mem_runs = match policy.as_ref() {
-            MemoryPolicy::FixedSizeLimit(r) => *r,
-            MemoryPolicy::Unbounded        => usize::MAX,
-            MemoryPolicy::Proportional(_)  => unreachable!("Proportional not implemented"),
-        };
-    
-        // make sure the fan-in itself cannot starve the pool (≳2 pages per run)
-        working_mem_runs = working_mem_runs.min(pool_pages / 2).max(1);
+        //----------------------------------------------------------------------
+        // 2)  Establish working-memory budget in *pages*
+        //----------------------------------------------------------------------
+        // let working_mem_pages = match policy.as_ref() {
+        //     MemoryPolicy::FixedSizeLimit(p) => *p,  // now interpreted as pages
+        //     MemoryPolicy::Unbounded         => usize::MAX,
+        //     MemoryPolicy::Proportional(_)   => unreachable!("Proportional not implemented"),
+        // };
+        let working_mem_pages = pool_pages;
     
         if verbose {
             let policy_str = match policy.as_ref() {
-                MemoryPolicy::FixedSizeLimit(r) => r.to_string(),
-                MemoryPolicy::Unbounded        => "∞".into(),
-                _                              => "prop".into(),
+                MemoryPolicy::FixedSizeLimit(p) => p.to_string(),
+                MemoryPolicy::Unbounded         => "∞".into(),
+                _                               => "prop".into(),
             };
             println!(
-                "» fan-in cap = {} runs/step   (policy={}, pool_pages={})",
-                working_mem_runs, policy_str, pool_pages
+                "» working-mem cap = {working_mem_pages} pages   (policy={policy_str}, pool_pages={pool_pages})"
             );
+            println!("\n⟪ hierarchical merge begins ⟫");
         }
     
-        /* --------------------------------------------------------- */
-        /* 3.  Hierarchical fan-in                                   */
-        /* --------------------------------------------------------- */
-    
+        //----------------------------------------------------------------------
+        // 3)  Hierarchical fan-in loop
+        //----------------------------------------------------------------------
         let mut fanins = Vec::<usize>::new();
     
         while runs.len() > 1 {
-            let fan_in = runs.len().min(working_mem_runs);
-            fanins.push(fan_in);
+            //------------------------- 3a  pick fan-in -------------------------
+            //
+            // greedily keep adding runs until adding the next one would exceed
+            // our *page* budget.  (always merge ≥2 to make progress)
+            //
+            let mut pages_acc = 0usize;
+            let mut fan_in    = 0usize;
+            for r in &runs {
+                let p = r.num_pages();
+                if fan_in > 0 && pages_acc + p > working_mem_pages { break; }
+                pages_acc += p;
+                fan_in    += 1;
+            }
+            fan_in = fan_in.max(2);      // must merge at least two runs
     
             if verbose {
                 println!("→ merging {fan_in} of {} current runs", runs.len());
             }
+            fanins.push(fan_in);
     
-            /* (a) pull inputs for this step */
-            let step_inputs = runs.drain(0..fan_in).collect::<Vec<_>>();
+            //------------------------- 3b  pull inputs -------------------------
+            let step_inputs: Vec<_> = runs.drain(0..fan_in).collect();
     
-            /* (b) remember containers we can drop afterwards */
+            //------------------------- 3c  remember old containers -------------
             let old_ckeys: Vec<_> = step_inputs
                 .iter()
                 .flat_map(|bss| bss.sorted_run_stores.iter().map(|s| s.c_key))
                 .collect();
     
-            /* (c) do one parallel merge step (bounded worker count!) */
+            //------------------------- 3d  fresh base key ----------------------
+            let step_base_key = ContainerKey {
+                db_id: dest_c_key.db_id,
+                c_id : next_cid,
+            };
+            next_cid = next_cid.wrapping_add(workers as u16);  // reserve range
+    
+            //------------------------- 3e  parallel merge step -----------------
             let merged_bss = self.parallel_merge_step_bss(
                 step_inputs,
                 mem_pool,
-                dest_c_key,
+                step_base_key,
                 workers,
                 verbose,
             )?;
     
-            /* (d) feed result back for next outer loop */
+            //------------------------- 3f  hand result back --------------------
             runs.push(merged_bss);
     
-            /* (e) best-effort clean-up of no-longer-needed containers */
+            //------------------------- 3g  best-effort cleanup -----------------
             for key in old_ckeys {
                 let _ = mem_pool.drop_container(key);
             }
@@ -1233,7 +1254,9 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             println!("⟪ hierarchical merge done – fan-ins {:?} ⟫", fanins);
         }
     
-        // exactly one run remains
+        //----------------------------------------------------------------------
+        // 4)  exactly one run remains
+        //----------------------------------------------------------------------
         Ok(runs.pop().unwrap())
     }
 
@@ -1409,6 +1432,8 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         // self.print_efficiency_changes(&pre_merge_stats, &post_merge_stats);
 
         println!("merge duration {:?}", duration_merge);
+        verify_sorted_store_full_bss(final_run.clone(), &[(0, true, false)], false, 1);
+    
         if verbose {
             verify_sorted_store_full_bss(final_run.clone(), &[(0, true, false)], false, 1);
             
