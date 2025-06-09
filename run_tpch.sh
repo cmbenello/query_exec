@@ -1,13 +1,13 @@
 #!/bin/bash
 # Parameters
-BUFFER_POOL_SIZE=3000000
+BUFFER_POOL_SIZE=300
 NUM_THREADS=40
 # MEMORY_SIZE=$BUFFER_POOL_SIZE
 MEMORY_SIZE=10000
 # WORKING_MEM=142000
-WORKING_MEM=150000
+WORKING_MEM=$BUFFER_POOL_SIZE
 QUERY=100
-SF=10
+SF=1
 
 # Set environment variables
 export NUM_THREADS=$NUM_THREADS
@@ -24,8 +24,8 @@ export BUFFER_POOL_SIZE=$BUFFER_POOL_SIZE
 BP_DIR="bp-dir-tpch-sf-$SF"
 
 # Clean up previous runs
-rm -rf "$BP_DIR/0/??*"
+find "$BP_DIR"/0 -mindepth 1 -maxdepth 1 -name '??*' -exec rm -rf {} +
 
-cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE" -m "$MEMORY_SIZE"
+RUST_BACKTRACE=1 cargo run --release --bin sort_run -- -q "$QUERY" -p "$BP_DIR" -n 1 -b "$BUFFER_POOL_SIZE" -m "$MEMORY_SIZE"
 
-rm -rf "$BP_DIR/0/??*"
+find "$BP_DIR"/0 -mindepth 1 -maxdepth 1 -name '??*' -exec rm -rf {} +
