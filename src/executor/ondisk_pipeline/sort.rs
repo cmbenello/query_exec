@@ -7,8 +7,8 @@
 // 2 byte: slot count
 // 2 byte: free space offset
 
-use fbtree::bp::MemPoolStatus;
 use core::panic;
+use fbtree::bp::MemPoolStatus;
 use rayon::{iter, prelude::*, result};
 use std::env;
 use std::time::Instant;
@@ -390,68 +390,67 @@ impl<M: MemPool> SortBuffer<M> {
     pub fn append(&mut self, tuple: &Tuple) -> bool {
         let key = tuple.to_normalized_key_bytes(&self.sort_cols);
         let val = tuple.to_bytes();
-
+    
+        /* ---------- ensure there is at least one page ------------------------ */
         if self.data_buffer.is_empty() {
             self.current_page_idx = 0;
             let frame = match self.mem_pool.create_new_page_for_write(self.dest_c_key) {
-                Ok(f)                          => f,
-                Err(MemPoolStatus::CannotEvictPage)=> return false,  // let caller flush & retry
-                Err(e)                         => panic!("mem-pool error: {e:?}"),
+                Ok(f)                               => f,
+                Err(MemPoolStatus::CannotEvictPage) => return false,  // caller will flush & retry
+                Err(e)                              => panic!("mem-pool error: {e:?}"),
             };
-        
-            let mut frame = unsafe {
-                std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame)
-            };
+            let mut frame =
+                unsafe { std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame) };
             frame.init();
             self.data_buffer.push(frame);
         }
-
+    
+        /* ---------- try to append to the current page ------------------------ */
         let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
         if page.append(&key, &val) {
-            self.ptrs
-                .push((self.current_page_idx, page.slot_count() - 1));
-            true
-        } else {
-            // If the current page is full, try to use the next page.
-            // If the next page is not available, allocate a new page based on the memory policy.
-            // If allocation is not possible, return false.
-            let next_page_idx = self.current_page_idx + 1;
-            if next_page_idx < self.data_buffer.len() {
-                self.current_page_idx = next_page_idx;
-                let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
-                assert!(page.append(&key, &val), "Record too large to fit in a page");
-                self.ptrs
-                    .push((self.current_page_idx, page.slot_count() - 1));
-                true
-            } else {
-                assert!(next_page_idx == self.data_buffer.len());
-                match self.policy.as_ref() {
-                    MemoryPolicy::FixedSizeLimit(max_length) => {
-                        if self.data_buffer.len() < *max_length {
-                            self.current_page_idx += 1;
-                            let frame = self
-                                .mem_pool
-                                .create_new_page_for_write(self.dest_c_key)
-                                .unwrap();
-                            let mut frame = unsafe {
-                                std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(
-                                    frame,
-                                )
-                            };
-                            frame.init();
-                            self.data_buffer.push(frame);
-                            let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
-                            assert!(page.append(&key, &val), "Record too large to fit in a page");
-                            self.ptrs
-                                .push((self.current_page_idx, page.slot_count() - 1));
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    _ => unimplemented!("Memory policy is not implemented yet"),
-                }
+            self.ptrs.push((self.current_page_idx, page.slot_count() - 1));
+            return true;
+        }
+    
+        /* ---------- need a new page ----------------------------------------- */
+        let next_idx = self.current_page_idx + 1;
+        if next_idx < self.data_buffer.len() {
+            self.current_page_idx = next_idx;
+            let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
+            assert!(
+                page.append(&key, &val),
+                "record too large to fit in a page"
+            );
+            self.ptrs.push((self.current_page_idx, page.slot_count() - 1));
+            return true;
+        }
+    
+        /* ---------- allocate fresh page (obeying policy) --------------------- */
+        match self.policy.as_ref() {
+            MemoryPolicy::FixedSizeLimit(max_pages) if self.data_buffer.len() >= *max_pages => {
+                return false; // buffer full → caller flushes
             }
+            MemoryPolicy::FixedSizeLimit(_) => {
+                let frame = match self.mem_pool.create_new_page_for_write(self.dest_c_key) {
+                    Ok(f)                               => f,
+                    Err(MemPoolStatus::CannotEvictPage) => return false,
+                    Err(e)                              => panic!("mem-pool error: {e:?}"),
+                };
+                let mut frame =
+                    unsafe { std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame) };
+                frame.init();
+                self.data_buffer.push(frame);
+                self.current_page_idx = next_idx;
+    
+                let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
+                assert!(
+                    page.append(&key, &val),
+                    "record too large to fit in a page"
+                );
+                self.ptrs.push((self.current_page_idx, page.slot_count() - 1));
+                true
+            }
+            _ => unimplemented!("Memory policy not implemented"),
         }
     }
 
@@ -634,106 +633,149 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
 
     pub fn run_generation_5(
         &mut self,
-        policy   : &Arc<MemoryPolicy>,
-        context  : &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
-        mem_pool : &Arc<M>,
+        policy: &Arc<MemoryPolicy>,
+        context: &HashMap<PipelineID, Arc<OnDiskBuffer<T, M>>>,
+        mem_pool: &Arc<M>,
         dest_c_key: ContainerKey,
     ) -> Result<Vec<Arc<SortedRunStore<M>>>, ExecError> {
         /* ---------- config & bookkeeping ------------------------------------- */
-        let total_tuples : usize = env::var("NUM_TUPLES")
+        let total_tuples: usize = env::var("NUM_TUPLES")
             .unwrap_or_else(|_| "6005720".into())
-            .parse().expect("NUM_TUPLES");
-        let num_threads  : usize = env::var("NUM_THREADS")
+            .parse()
+            .expect("NUM_TUPLES");
+        let num_threads: usize = env::var("NUM_THREADS")
             .unwrap_or_else(|_| "8".into())
-            .parse().expect("NUM_THREADS");
-    
-        let chunk_size   = (total_tuples + num_threads - 1) / num_threads;
-        let work_pages   = match policy.as_ref() {
+            .parse()
+            .expect("NUM_THREADS");
+
+        let chunk_size = (total_tuples + num_threads - 1) / num_threads;
+        let work_pages = match policy.as_ref() {
             MemoryPolicy::FixedSizeLimit(p) => *p,
             _ => unreachable!(),
         };
-        let thr_policy   = Arc::new(MemoryPolicy::FixedSizeLimit(work_pages / num_threads.max(1)));
-    
-        let ranges : Vec<_> = (0..num_threads).map(|i| {
-            let lo = i * chunk_size;
-            let hi = if i == num_threads - 1 { total_tuples } else { (i + 1) * chunk_size };
-            (lo, hi)
-        }).collect();
-    
-        let plans : Vec<_> = ranges.iter()
-            .map(|&(s,e)| self.exec_plan.clone_with_range(s, e))
+        let thr_pages = if num_threads == 1 {
+            // leave at most half the pool free for the copy destination
+            (work_pages).max(1) * 0.8 as usize
+        } else {
+            (work_pages / num_threads).max(1)
+        };
+        let thr_policy = Arc::new(MemoryPolicy::FixedSizeLimit(thr_pages));
+
+        let ranges: Vec<_> = (0..num_threads)
+            .map(|i| {
+                let lo = i * chunk_size;
+                let hi = if i == num_threads - 1 {
+                    total_tuples
+                } else {
+                    (i + 1) * chunk_size
+                };
+                (lo, hi)
+            })
             .collect();
-    
+
+        let plans: Vec<_> = ranges
+            .iter()
+            .map(|&(s, e)| self.exec_plan.clone_with_range(s, e))
+            .collect();
+
         /* ---------- run generation in parallel ------------------------------- */
         let sort_cols = self.sort_cols.clone();
-        let num_q     = self.quantiles.num_quantiles;
-    
-        let worker_results = plans.into_par_iter().enumerate().map(|(tid, mut plan)| {
-            let t0             = Instant::now();
-            let mut local_cid  = (tid as u16) * 2000;
-            let mut next_cid   = |cid:&mut u16| { let id=*cid; *cid = cid.wrapping_add(1); id };
-    
-            let mut scratch_key = ContainerKey { db_id: dest_c_key.db_id,
-                                                 c_id : next_cid(&mut local_cid) };
-            let mut sbuf = SortBuffer::new(mem_pool, scratch_key, &thr_policy, sort_cols.clone());
-    
-            let mut runs   = Vec::<Arc<SortedRunStore<M>>>::new();
-            let mut qtls   = Vec::<SingleRunQuantiles>::new();
-            let mut seen   = 0usize;
-            const BATCH:usize = 1000;
-            let mut batch = Vec::with_capacity(BATCH);
-    
-            let mut flush = |sbuf:&mut SortBuffer<M>, key:ContainerKey,
-                             runs:&mut Vec<_>, qtls:&mut Vec<_>| {
-                if sbuf.ptrs.is_empty() { return; }
-                sbuf.sort();
-                qtls.push(sbuf.sample_quantiles(num_q));
-                runs.push(Arc::new(SortedRunStore::new(
-                    key, mem_pool.clone(), SortBufferIter::new(sbuf))));
-            };
-    
-            while let Some(t) = plan.next(context)? {
-                batch.push(t);
-                if batch.len() == BATCH {
-                    for tup in batch.drain(..) {
-                        seen += 1;
-                        if !sbuf.append(&tup) {
-                            flush(&mut sbuf, scratch_key, &mut runs, &mut qtls);
-    
-                            scratch_key = ContainerKey { db_id: dest_c_key.db_id,
-                                                         c_id : next_cid(&mut local_cid) };
-                            sbuf.reset();
-                            sbuf.set_dest_c_key(scratch_key);
-                            sbuf.append(&tup);
+        let num_q = self.quantiles.num_quantiles;
+
+        let worker_results = plans
+            .into_par_iter()
+            .enumerate()
+            .map(|(tid, mut plan)| {
+                let t0 = Instant::now();
+                let mut local_cid = (tid as u16) * 2000;
+                let mut next_cid = |cid: &mut u16| {
+                    let id = *cid;
+                    *cid = cid.wrapping_add(1);
+                    id
+                };
+
+                let mut scratch_key = ContainerKey {
+                    db_id: dest_c_key.db_id,
+                    c_id: next_cid(&mut local_cid),
+                };
+                let mut sbuf =
+                    SortBuffer::new(mem_pool, scratch_key, &thr_policy, sort_cols.clone());
+
+                let mut runs = Vec::<Arc<SortedRunStore<M>>>::new();
+                let mut qtls = Vec::<SingleRunQuantiles>::new();
+                let mut seen = 0usize;
+                const BATCH: usize = 1000;
+                let mut batch = Vec::with_capacity(BATCH);
+
+                let mut flush = |sbuf: &mut SortBuffer<M>,
+                                 key: ContainerKey,
+                                 runs: &mut Vec<_>,
+                                 qtls: &mut Vec<_>| {
+                    if sbuf.ptrs.is_empty() {
+                        return;
+                    }
+                    sbuf.sort();
+                    qtls.push(sbuf.sample_quantiles(num_q));
+                    runs.push(Arc::new(SortedRunStore::new(
+                        key,
+                        mem_pool.clone(),
+                        SortBufferIter::new(sbuf),
+                    )));
+                };
+
+                while let Some(t) = plan.next(context)? {
+                    batch.push(t);
+                    if batch.len() == BATCH {
+                        for tup in batch.drain(..) {
+                            seen += 1;
+                            if !sbuf.append(&tup) {
+                                flush(&mut sbuf, scratch_key, &mut runs, &mut qtls);
+
+                                scratch_key = ContainerKey {
+                                    db_id: dest_c_key.db_id,
+                                    c_id: next_cid(&mut local_cid),
+                                };
+                                sbuf.reset();
+                                sbuf.set_dest_c_key(scratch_key);
+                                sbuf.append(&tup);
+                            }
                         }
                     }
                 }
-            }
-            for tup in batch {                       // tail
-                seen += 1;
-                if !sbuf.append(&tup) {
-                    flush(&mut sbuf, scratch_key, &mut runs, &mut qtls);
-                    scratch_key = ContainerKey { db_id: dest_c_key.db_id,
-                                                 c_id : next_cid(&mut local_cid) };
-                    sbuf.reset();
-                    sbuf.set_dest_c_key(scratch_key);
-                    sbuf.append(&tup);
+                for tup in batch {
+                    // tail
+                    seen += 1;
+                    if !sbuf.append(&tup) {
+                        flush(&mut sbuf, scratch_key, &mut runs, &mut qtls);
+                        scratch_key = ContainerKey {
+                            db_id: dest_c_key.db_id,
+                            c_id: next_cid(&mut local_cid),
+                        };
+                        sbuf.reset();
+                        sbuf.set_dest_c_key(scratch_key);
+                        sbuf.append(&tup);
+                    }
                 }
-            }
-            flush(&mut sbuf, scratch_key, &mut runs, &mut qtls);
-    
-            let mut thr_q = SingleRunQuantiles::new(num_q);
-            for q in qtls { thr_q.merge(&q); }
-    
-            println!("Thread {tid}: {seen} tuples → {} runs in {:.2}s",
-                     runs.len(), t0.elapsed().as_secs_f64());
-            Ok((runs, thr_q))
-        }).collect::<Result<Vec<_>,ExecError>>()?;
-    
+                flush(&mut sbuf, scratch_key, &mut runs, &mut qtls);
+
+                let mut thr_q = SingleRunQuantiles::new(num_q);
+                for q in qtls {
+                    thr_q.merge(&q);
+                }
+
+                println!(
+                    "Thread {tid}: {seen} tuples → {} runs in {:.2}s",
+                    runs.len(),
+                    t0.elapsed().as_secs_f64()
+                );
+                Ok((runs, thr_q))
+            })
+            .collect::<Result<Vec<_>, ExecError>>()?;
+
         /* ---------- assemble final result ------------------------------------ */
         let mut all_runs = Vec::new();
         let mut global_q = SingleRunQuantiles::new(self.quantiles.num_quantiles);
-    
+
         for (r, q) in worker_results {
             all_runs.extend(r);
             global_q.merge(&q);
@@ -1039,58 +1081,75 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         verbose: bool,
     ) -> Result<Arc<BigSortedRunStore<M>>, ExecError> {
         let merge_start = Instant::now();
-    
+
         //------------------------- 1. global quantiles ---------------------------
         let q_cnt = num_threads + 1;
         let mut global_q = estimate_quantiles(&runs, q_cnt, QuantileMethod::Actual);
-        global_q[0]          = vec![0; 9];
-        global_q[q_cnt - 1]  = vec![255; 9];
+        global_q[0] = vec![0; 9];
+        global_q[q_cnt - 1] = vec![255; 9];
         let global_q = Arc::new(global_q);
-    
+
         //------------------------- 2. spawn workers ------------------------------
         let worker_results = std::thread::scope(|scope| {
             let mut handles = Vec::with_capacity(num_threads);
-    
+
             for part in 0..num_threads {
-                let runs          = runs.clone();
-                let mem_pool      = Arc::clone(mem_pool);
-                let global_q      = Arc::clone(&global_q);
-    
+                let runs = runs.clone();
+                let mem_pool = Arc::clone(mem_pool);
+                let global_q = Arc::clone(&global_q);
+
                 handles.push(scope.spawn(move || -> (usize, SortedRunStore<M>, usize) {
                     let t0 = Instant::now();
-    
+
                     // half-open range [lower, upper)
                     let lower = global_q[part].clone();
                     let mut upper = global_q[part + 1].clone();
-    
+
                     // make *upper* inclusive for the very last partition
                     if part == num_threads - 1 {
                         let mut carry = 1u8;
                         for byte in upper.iter_mut().rev() {
                             let (b, c) = byte.overflowing_add(carry);
-                            *byte      = b;
-                            carry      = c as u8;
-                            if carry == 0 { break; }
+                            *byte = b;
+                            carry = c as u8;
+                            if carry == 0 {
+                                break;
+                            }
                         }
-                        if carry != 0 { upper.insert(0, 1); }
+                        if carry != 0 {
+                            upper.insert(0, 1);
+                        }
                     }
-    
+
+                    fn bump(mut k: Vec<u8>) -> Vec<u8> {
+                        let mut carry = 1u8;
+                        for byte in k.iter_mut().rev() {
+                            let (b, c) = byte.overflowing_add(carry);
+                            *byte = b; carry = c as u8; if carry == 0 { break; }
+                        }
+                        if carry != 0 { k.insert(0, 1); }
+                        k
+                    }
+                    
+                    let upper_exclusive = bump(global_q[part + 1].clone());
+
                     // build per-run iterators restricted to this partition
-                    let segs: Vec<_> = runs.iter()
-                        .map(|r| BigSortedRunStore::scan_range_arc(r, &lower, &upper))
+                    let segs: Vec<_> = runs
+                        .iter()
+                        .map(|r| BigSortedRunStore::scan_range_arc(r, &lower, &upper_exclusive))
                         .collect();
-    
+
                     // k-way merge
-                    let merge_iter   = MergeIter::new(segs);
-    
+                    let merge_iter = MergeIter::new(segs);
+
                     // each worker writes into its own temporary container
                     let tmp_key = ContainerKey {
                         db_id: dest_c_key.db_id,
-                        c_id : dest_c_key.c_id + part as u16,
+                        c_id: dest_c_key.c_id + part as u16,
                     };
-                    let store   = SortedRunStore::new(tmp_key, mem_pool, merge_iter);
-                    let tuples  = store.len();
-    
+                    let store = SortedRunStore::new(tmp_key, mem_pool, merge_iter);
+                    let tuples = store.len();
+
                     if verbose {
                         println!(
                             "worker {part}: {tuples} recs, {} pages, {:.2}s",
@@ -1101,7 +1160,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                     (part, store, tuples)
                 }));
             }
-    
+
             // collect in order
             let mut acc = vec![None; num_threads];
             for h in handles {
@@ -1110,16 +1169,16 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
             }
             acc.into_iter().map(|o| o.unwrap()).collect::<Vec<_>>()
         });
-    
+
         //------------------------- 3. assemble final BSS -------------------------
-        let mut final_bss    = BigSortedRunStore::new();
+        let mut final_bss = BigSortedRunStore::new();
         let mut total_tuples = 0usize;
-    
+
         for (store, cnt) in worker_results {
             total_tuples += cnt;
             final_bss.add_store(Arc::new(store));
         }
-    
+
         if verbose {
             println!(
                 "parallel_merge_step_bss: merged {} input-runs → {} tuples in {:.2}s",
@@ -1128,135 +1187,117 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 merge_start.elapsed().as_secs_f64()
             );
         }
-    
+
         Ok(Arc::new(final_bss))
     }
 
     /// Performs a single parallel merge step combining multiple sorted runs into a BigSortedRunStore
     fn run_merge_parallel_bss(
         &self,
-        policy      : &Arc<MemoryPolicy>,
-        mut runs    : Vec<Arc<BigSortedRunStore<M>>>,
-        mem_pool    : &Arc<M>,
-        dest_c_key  : ContainerKey,
-        num_threads : usize,
-        verbose     : bool,
+        policy: &Arc<MemoryPolicy>,
+        mut runs: Vec<Arc<BigSortedRunStore<M>>>,
+        mem_pool: &Arc<M>,
+        dest_c_key: ContainerKey,
+        num_threads: usize,
+        verbose: bool,
     ) -> Result<Arc<BigSortedRunStore<M>>, ExecError>
     {
-        //----------------------------------------------------------------------
-        // 0)  Unique container-ID generator – never reuse IDs across rounds
-        //----------------------------------------------------------------------
-        //
-        // Reserve a gap *well above* the IDs used during run-generation
-        // (each worker started at `tid * 2000`). 10 000 is arbitrary,
-        // only has to be large enough not to collide.
-        //
+        //------------------------------------------------------------------
+        // 0) One-time bookkeeping
+        //------------------------------------------------------------------
         let mut next_cid: u16 = dest_c_key.c_id.saturating_add(10_000);
     
-        //----------------------------------------------------------------------
-        // 1)  Figure out how many workers the buffer pool can realistically feed
-        //----------------------------------------------------------------------
-        const MIN_PAGES_PER_WORKER: usize = 3;            // 1 read, 1 write, slack
-        let pool_pages  = mem_pool.capacity();            // your own accessor
-        let max_workers = (pool_pages / MIN_PAGES_PER_WORKER).max(1);
-        let workers     = num_threads.min(max_workers);
+        const READ_FRAMES_PER_RUN   : usize = 1;   // one page “cursor” per input run
+        const WRITE_FRAMES_RESERVED : usize = 2;   // one active + one spare/flush
+        const MAX_RUNS_PER_WORKER   : usize = 8;   // tweak for CPU/IO balance
     
-        if verbose && workers < num_threads {
-            println!(
-                "» throttling workers from {} → {} (buffer-pool has {} pages)",
-                num_threads, workers, pool_pages
-            );
-        }
-    
-        //----------------------------------------------------------------------
-        // 2)  Establish working-memory budget in *pages*
-        //----------------------------------------------------------------------
-        // let working_mem_pages = match policy.as_ref() {
-        //     MemoryPolicy::FixedSizeLimit(p) => *p,  // now interpreted as pages
-        //     MemoryPolicy::Unbounded         => usize::MAX,
-        //     MemoryPolicy::Proportional(_)   => unreachable!("Proportional not implemented"),
-        // };
-        let working_mem_pages = pool_pages;
+        //------------------------------------------------------------------
+        // 1) Buffer-pool & worker information
+        //------------------------------------------------------------------
+        let pool_pages  = mem_pool.capacity();                // exposed by your pool
+        let workers     = num_threads.min(pool_pages / 3).max(1);
     
         if verbose {
-            let policy_str = match policy.as_ref() {
-                MemoryPolicy::FixedSizeLimit(p) => p.to_string(),
-                MemoryPolicy::Unbounded         => "∞".into(),
-                _                               => "prop".into(),
-            };
-            println!(
-                "» working-mem cap = {working_mem_pages} pages   (policy={policy_str}, pool_pages={pool_pages})"
-            );
+            println!("» workers = {workers}  (pool holds {pool_pages} frames)");
+        }
+    
+        let working_mem_pages = pool_pages;               // simple heuristic
+        if verbose {
+            println!("» working-mem cap = {working_mem_pages} frames");
             println!("\n⟪ hierarchical merge begins ⟫");
         }
     
-        //----------------------------------------------------------------------
-        // 3)  Hierarchical fan-in loop
-        //----------------------------------------------------------------------
+        //------------------------------------------------------------------
+        // 2)  Hierarchical fan-in loop
+        //------------------------------------------------------------------
         let mut fanins = Vec::<usize>::new();
     
         while runs.len() > 1 {
-            //------------------------- 3a  pick fan-in -------------------------
-            //
-            // greedily keep adding runs until adding the next one would exceed
-            // our *page* budget.  (always merge ≥2 to make progress)
-            //
-            let mut pages_acc = 0usize;
-            let mut fan_in    = 0usize;
-            for r in &runs {
-                let p = r.num_pages();
-                if fan_in > 0 && pages_acc + p > working_mem_pages { break; }
-                pages_acc += p;
-                fan_in    += 1;
-            }
-            fan_in = fan_in.max(2);      // must merge at least two runs
+            //--------------------------------------------------------------  
+            // (a) choose fan-in
+            //--------------------------------------------------------------  
+            let mem_cap   = working_mem_pages
+                            .saturating_sub(WRITE_FRAMES_RESERVED)
+                            / READ_FRAMES_PER_RUN;
     
-            if verbose {
-                println!("→ merging {fan_in} of {} current runs", runs.len());
-            }
+            let thru_cap  = workers * MAX_RUNS_PER_WORKER;
+    
+            let fan_in    = runs.len()
+                            .min(mem_cap)
+                            .min(thru_cap)
+                            .max(2);
+    
             fanins.push(fan_in);
+            if verbose {
+                println!("→ merging {fan_in} of {} runs", runs.len());
+            }
     
-            //------------------------- 3b  pull inputs -------------------------
+            //--------------------------------------------------------------  
+            // (b) slice off the next *fan_in* inputs
+            //--------------------------------------------------------------  
             let step_inputs: Vec<_> = runs.drain(0..fan_in).collect();
     
-            //------------------------- 3c  remember old containers -------------
-            let old_ckeys: Vec<_> = step_inputs
-                .iter()
-                .flat_map(|bss| bss.sorted_run_stores.iter().map(|s| s.c_key))
-                .collect();
-    
-            //------------------------- 3d  fresh base key ----------------------
+            //--------------------------------------------------------------  
+            // (c) reserve fresh container id range for the step
+            //--------------------------------------------------------------  
             let step_base_key = ContainerKey {
                 db_id: dest_c_key.db_id,
                 c_id : next_cid,
             };
-            next_cid = next_cid.wrapping_add(workers as u16);  // reserve range
+            next_cid = next_cid.wrapping_add(workers as u16);
     
-            //------------------------- 3e  parallel merge step -----------------
+            //--------------------------------------------------------------  
+            // (d) execute parallel merge step
+            //--------------------------------------------------------------  
             let merged_bss = self.parallel_merge_step_bss(
-                step_inputs,
+                step_inputs.clone(),
                 mem_pool,
                 step_base_key,
                 workers,
                 verbose,
             )?;
     
-            //------------------------- 3f  hand result back --------------------
+            //--------------------------------------------------------------  
+            // (e) feed result back into the queue
+            //--------------------------------------------------------------  
             runs.push(merged_bss);
-    
-            //------------------------- 3g  best-effort cleanup -----------------
-            for key in old_ckeys {
-                let _ = mem_pool.drop_container(key);
-            }
+
+            for key in step_inputs
+                .iter()
+                .flat_map(|bss| bss.sorted_run_stores.iter().map(|s| s.c_key))
+                {
+                    // ignore errors – container might already be gone
+                    let _ = mem_pool.drop_container(key);
+                }
         }
     
         if verbose {
-            println!("⟪ hierarchical merge done – fan-ins {:?} ⟫", fanins);
+            println!("⟪ hierarchical merge done  – fan-ins {:?} ⟫", fanins);
         }
     
-        //----------------------------------------------------------------------
-        // 4)  exactly one run remains
-        //----------------------------------------------------------------------
+        //------------------------------------------------------------------
+        // 3) single run remains
+        //------------------------------------------------------------------
         Ok(runs.pop().unwrap())
     }
 
@@ -1433,33 +1474,33 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
 
         println!("merge duration {:?}", duration_merge);
         verify_sorted_store_full_bss(final_run.clone(), &[(0, true, false)], false, 1);
-    
+
         if verbose {
             verify_sorted_store_full_bss(final_run.clone(), &[(0, true, false)], false, 1);
-            
+
             let data_source = env::var("DATA_SOURCE").unwrap_or_else(|_| (&"TPCH").to_string());
             let sf = env::var("SF")
-            .unwrap_or_else(|_| 1.to_string())
-            .parse()
-            .expect("SF must be a valid number");
-        let query_num = env::var("QUERY_NUM")
-            .unwrap_or_else(|_| 100.to_string())
-            .parse()
-            .expect("QUERY_NUM must be a valid number");
-        let num_tuples = env::var("NUM_TUPLES")
-            .unwrap_or_else(|_| 6005720.to_string())
-            .parse()
-            .expect("NUM_TUPLES must be a valid number");
-        let max_num_quantiles = 50;
-        write_quantiles_to_json_file(
-            final_run.clone(),
-            &data_source,
-            sf,
-            query_num,
-            num_tuples,
-            max_num_quantiles,
-        )?;
-    }   
+                .unwrap_or_else(|_| 1.to_string())
+                .parse()
+                .expect("SF must be a valid number");
+            let query_num = env::var("QUERY_NUM")
+                .unwrap_or_else(|_| 100.to_string())
+                .parse()
+                .expect("QUERY_NUM must be a valid number");
+            let num_tuples = env::var("NUM_TUPLES")
+                .unwrap_or_else(|_| 6005720.to_string())
+                .parse()
+                .expect("NUM_TUPLES must be a valid number");
+            let max_num_quantiles = 50;
+            write_quantiles_to_json_file(
+                final_run.clone(),
+                &data_source,
+                sf,
+                query_num,
+                num_tuples,
+                max_num_quantiles,
+            )?;
+        }
 
         Ok(Arc::new(OnDiskBuffer::BigSortedRunStore(final_run)))
     }

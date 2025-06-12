@@ -1,0 +1,790 @@
+bp size 3000
+Iteration 1
+Using ParallelBSS run generation strategy
+warning: unused import: `RECORD_VALUE_SIZE`
+ --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/gensort_store/gensort_page.rs:1:73
+  |
+1 | use crate::access_method::gensort_store::{RECORD_KEY_SIZE, RECORD_SIZE, RECORD_VALUE_SIZE};
+  |                                                                         ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `crate::page::Page`
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/sorted_run_store/mod.rs:30:5
+   |
+30 | use crate::page::Page;
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PageId`
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/sorted_run_store/mod.rs:32:36
+   |
+32 | use crate::prelude::{ContainerKey, PageId};
+   |                                    ^^^^^^
+
+warning: unused import: `std::sync::Mutex`
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/sorted_run_store/mod.rs:33:5
+   |
+33 | use std::sync::Mutex;
+   |     ^^^^^^^^^^^^^^^^
+
+warning: unused import: `atomic::AtomicU32`
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/sorted_run_store/mod.rs:34:17
+   |
+34 | use std::sync::{atomic::AtomicU32, Arc};
+   |                 ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `self`
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/bp/buffer_pool.rs:15:12
+   |
+15 |     page::{self, PageId},
+   |            ^^^^
+
+warning: unused import: `mem::uninitialized`
+ --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:4:5
+  |
+4 |     mem::uninitialized,
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `std::mem::uninitialized`: use `mem::MaybeUninit` instead
+ --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:4:10
+  |
+4 |     mem::uninitialized,
+  |          ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(deprecated)]` on by default
+
+warning: variable `attempts` is assigned to, but never used
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/sorted_run_store/mod.rs:223:17
+    |
+223 |         let mut attempts = 0;
+    |                 ^^^^^^^^
+    |
+    = note: consider using `_attempts` instead
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/sorted_run_store/mod.rs:685:13
+    |
+685 |         let mut start_idx = if lower_bound.is_empty() {
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `e`
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:613:31
+    |
+613 |                     .map_err(|e| TxnStorageStatus::KeyNotFound)?;
+    |                               ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `c_id`
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:630:9
+    |
+630 |         c_id: &ContainerId,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_c_id`
+
+warning: unused variable: `e`
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:639:31
+    |
+639 |                     .map_err(|e| TxnStorageStatus::KeyNotFound)
+    |                               ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: method `get_num_pages` is never used
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/append_only_store/mod.rs:49:8
+   |
+27 | impl RuntimeStats {
+   | ----------------- method in this implementation
+...
+49 |     fn get_num_pages(&self) -> usize {
+   |        ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `start_index` is never read
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/append_only_store/mod.rs:540:5
+    |
+538 | pub struct AppendOnlyStoreRangeIter<M: MemPool> {
+    |            ------------------------ field in this struct
+539 |     store: Arc<AppendOnlyStore<M>>,
+540 |     start_index: usize,
+    |     ^^^^^^^^^^^
+
+warning: methods `get_key` and `get_value` are never used
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/access_method/gensort_store/gensort_page.rs:38:8
+   |
+10 | pub trait GensortPage {
+   |           ----------- methods in this trait
+...
+38 |     fn get_key(&self, idx: u32) -> Option<&[u8]>;
+   |        ^^^^^^^
+39 |     fn get_value(&self, idx: u32) -> Option<&[u8]>;
+   |        ^^^^^^^^^
+
+warning: method `iter` is never used
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/bp/buffer_pool.rs:257:12
+    |
+210 | impl PageToFrame {
+    | ---------------- method in this implementation
+...
+257 |     pub fn iter(&self) -> impl Iterator<Item = (&ContainerKey, &PageId, &usize)> {
+    |            ^^^^
+
+warning: associated items `gensort_range` and `seek` are never used
+   --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:181:8
+    |
+169 | impl<M: MemPool> OnDiskIterator<M> {
+    | ---------------------------------- associated items in this implementation
+...
+181 |     fn gensort_range(iter: RangeScanner<M>) -> Self {
+    |        ^^^^^^^^^^^^^
+...
+214 |     fn seek(&self, index: usize) -> Result<(), AccessMethodError> {
+    |        ^^^^
+
+warning: unused `Result` that must be used
+  --> /mnt/nvme1/cmbenello/FosterBtree/src/txn_storage/ondisk/mod.rs:98:17
+   |
+98 |                 g.append(&record);
+   |                 ^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+   = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+   |
+98 |                 let _ = g.append(&record);
+   |                 +++++++
+
+warning: `fbtree` (lib) generated 19 warnings (run `cargo fix --lib -p fbtree` to apply 8 suggestions)
+warning: unused import: `crate::log`
+ --> src/executor/inmem_pipeline/mod.rs:3:5
+  |
+3 | use crate::log;
+  |     ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `iter` and `result`
+  --> src/executor/ondisk_pipeline/sort.rs:12:13
+   |
+12 | use rayon::{iter, prelude::*, result};
+   |             ^^^^              ^^^^^^
+
+warning: unused imports: `AtomicU16` and `Ordering`
+  --> src/executor/ondisk_pipeline/sort.rs:29:25
+   |
+29 | use std::sync::atomic::{AtomicU16, Ordering};
+   |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused imports: `AppendOnlyStoreScanner`, `DatabaseId`, and `access_method::chain`
+   --> src/executor/ondisk_pipeline/sort.rs:176:5
+    |
+176 |     access_method::chain,
+    |     ^^^^^^^^^^^^^^^^^^^^
+177 |     bp::{ContainerKey, DatabaseId, FrameWriteGuard, MemPool},
+    |                        ^^^^^^^^^^
+178 |     prelude::{AppendOnlyStore, AppendOnlyStoreScanner},
+    |                                ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::log`
+ --> src/executor/ondisk_pipeline/mod.rs:5:5
+  |
+5 | use crate::log;
+  |     ^^^^^^^^^^
+
+warning: unused import: `core::num`
+ --> src/executor/ondisk_pipeline/mod.rs:6:5
+  |
+6 | use core::num;
+  |     ^^^^^^^^^
+
+warning: unused import: `core::num`
+ --> src/quantile_lib.rs:1:5
+  |
+1 | use core::num;
+  |     ^^^^^^^^^
+
+warning: unused import: `collections::HashMap`
+ --> src/quantile_lib.rs:9:11
+  |
+9 | use std::{collections::HashMap, env, fs::File, io::Write, sync::Arc};
+  |           ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BufRead` and `BufReader`
+  --> src/query_executor.rs:25:15
+   |
+25 | use std::io::{BufRead, BufReader};
+   |               ^^^^^^^  ^^^^^^^^^
+
+warning: use of deprecated associated function `chrono::DateTime::<Tz>::from_utc`: Use TimeZone::from_utc_datetime() or DateTime::from_naive_utc_and_offset instead
+   --> src/tuple.rs:677:72
+    |
+677 |                     let datetime_utc: DateTime<Utc> = DateTime::<Utc>::from_utc(naive_dt, Utc);
+    |                                                                        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `chrono::NaiveDateTime::from_timestamp`: use `DateTime::from_timestamp` instead
+   --> src/tuple.rs:753:59
+    |
+753 |                     let datetime = chrono::NaiveDateTime::from_timestamp(*ts_val as i64, 0);
+    |                                                           ^^^^^^^^^^^^^^
+
+warning: unused import: `NonUniqueKeyIndex`
+  --> src/executor/ondisk_pipeline/hash_table.rs:13:9
+   |
+13 |         NonUniqueKeyIndex, UniqueKeyIndex,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `executor::TupleBuffer`
+  --> src/executor/ondisk_pipeline/sort.rs:23:5
+   |
+23 |     executor::TupleBuffer,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `data_source`
+    --> src/executor/inmem_pipeline/mod.rs:1347:9
+     |
+1347 |         data_source: &str,
+     |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_data_source`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `query_id`
+    --> src/executor/inmem_pipeline/mod.rs:1348:9
+     |
+1348 |         query_id: u8,
+     |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_query_id`
+
+warning: unused variable: `methods`
+    --> src/executor/inmem_pipeline/mod.rs:1349:9
+     |
+1349 |         methods: &[QuantileMethod],
+     |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_methods`
+
+warning: unused variable: `num_quantiles_per_run`
+    --> src/executor/inmem_pipeline/mod.rs:1350:9
+     |
+1350 |         num_quantiles_per_run: usize,
+     |         ^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_quantiles_per_run`
+
+warning: unused variable: `estimated_store_json`
+    --> src/executor/inmem_pipeline/mod.rs:1351:9
+     |
+1351 |         estimated_store_json: &str,
+     |         ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_estimated_store_json`
+
+warning: unused variable: `actual_store_json`
+    --> src/executor/inmem_pipeline/mod.rs:1352:9
+     |
+1352 |         actual_store_json: &str,
+     |         ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_actual_store_json`
+
+warning: unused variable: `evaluation_json`
+    --> src/executor/inmem_pipeline/mod.rs:1353:9
+     |
+1353 |         evaluation_json: &str,
+     |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_evaluation_json`
+
+warning: unused variable: `db_id`
+  --> src/executor/ondisk_pipeline/disk_buffer.rs:87:33
+   |
+87 |     pub fn big_sorted_run_store(db_id: DatabaseId, c_id: ContainerId) -> Self {
+   |                                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_db_id`
+
+warning: unused variable: `c_id`
+  --> src/executor/ondisk_pipeline/disk_buffer.rs:87:52
+   |
+87 |     pub fn big_sorted_run_store(db_id: DatabaseId, c_id: ContainerId) -> Self {
+   |                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_c_id`
+
+warning: unused variable: `hash_table`
+   --> src/executor/ondisk_pipeline/disk_buffer.rs:138:37
+    |
+138 |             OnDiskBuffer::HashTable(hash_table) => {
+    |                                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hash_table`
+
+warning: unused variable: `policy`
+   --> src/executor/ondisk_pipeline/hash_table.rs:383:9
+    |
+383 |         policy: &Arc<MemoryPolicy>,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_policy`
+
+warning: variable does not need to be mutable
+   --> src/executor/ondisk_pipeline/sort.rs:674:17
+    |
+674 |             let mut next_cid   = |cid:&mut u16| { let id=*cid; *cid = cid.wrapping_add(1); id };
+    |                 ----^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/executor/ondisk_pipeline/sort.rs:686:17
+    |
+686 |             let mut flush = |sbuf:&mut SortBuffer<M>, key:ContainerKey,
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `working_mem`
+   --> src/executor/ondisk_pipeline/sort.rs:916:42
+    |
+916 |             MemoryPolicy::FixedSizeLimit(working_mem) => {
+    |                                          ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_working_mem`
+
+warning: unused variable: `runs`
+    --> src/executor/ondisk_pipeline/sort.rs:1530:13
+     |
+1530 |         let runs = self.run_generation_5(policy, context, mem_pool, dest_c_key)?;
+     |             ^^^^ help: if this is intentional, prefix it with an underscore: `_runs`
+
+warning: unused variable: `actual_quantiles`
+    --> src/executor/ondisk_pipeline/sort.rs:1566:17
+     |
+1566 |             let actual_quantiles = load_quantiles_from_json(
+     |                 ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_actual_quantiles`
+
+warning: unused variable: `evaluation_json_path`
+    --> src/executor/ondisk_pipeline/sort.rs:1573:17
+     |
+1573 |             let evaluation_json_path = evaluation_json.replace("***", &method.to_string());
+     |                 ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_evaluation_json_path`
+
+warning: unused variable: `estimated_store_json`
+    --> src/executor/ondisk_pipeline/sort.rs:1525:9
+     |
+1525 |         estimated_store_json: &str,
+     |         ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_estimated_store_json`
+
+warning: unused variable: `iter`
+   --> src/executor/ondisk_pipeline/mod.rs:116:38
+    |
+116 |             NonBlockingOp::RangeScan(iter) => unimplemented!("estimate_num_tuples for RangeScan"),
+    |                                      ^^^^ help: if this is intentional, prefix it with an underscore: `_iter`
+
+warning: unused variable: `iter`
+   --> src/executor/ondisk_pipeline/mod.rs:120:37
+    |
+120 |             NonBlockingOp::HashJoin(iter) => {
+    |                                     ^^^^ help: if this is intentional, prefix it with an underscore: `_iter`
+
+warning: unused variable: `iter`
+   --> src/executor/ondisk_pipeline/mod.rs:124:43
+    |
+124 |             NonBlockingOp::NestedLoopJoin(iter) => {
+    |                                           ^^^^ help: if this is intentional, prefix it with an underscore: `_iter`
+
+warning: unused variable: `other`
+   --> src/executor/ondisk_pipeline/mod.rs:157:13
+    |
+157 |             other => {
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_other`
+
+warning: unused variable: `data_source`
+  --> src/executor/volcano/mod.rs:67:9
+   |
+67 |         data_source: &str,
+   |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_data_source`
+
+warning: unused variable: `query_id`
+  --> src/executor/volcano/mod.rs:68:9
+   |
+68 |         query_id: u8,
+   |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_query_id`
+
+warning: unused variable: `methods`
+  --> src/executor/volcano/mod.rs:69:9
+   |
+69 |         methods: &[QuantileMethod],
+   |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_methods`
+
+warning: unused variable: `num_quantiles_per_run`
+  --> src/executor/volcano/mod.rs:71:9
+   |
+71 |         num_quantiles_per_run: usize,
+   |         ^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_quantiles_per_run`
+
+warning: unused variable: `estimated_store_json`
+  --> src/executor/volcano/mod.rs:72:9
+   |
+72 |         estimated_store_json: &str,
+   |         ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_estimated_store_json`
+
+warning: unused variable: `actual_store_json`
+  --> src/executor/volcano/mod.rs:73:9
+   |
+73 |         actual_store_json: &str,
+   |         ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_actual_store_json`
+
+warning: unused variable: `evaluation_json`
+  --> src/executor/volcano/mod.rs:74:9
+   |
+74 |         evaluation_json: &str,
+   |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_evaluation_json`
+
+warning: unused variable: `syntax`
+    --> src/parser/translator.rs:1208:17
+     |
+1208 |                 syntax,
+     |                 ^^^^^^ help: try ignoring the field: `syntax: _`
+
+warning: unreachable pattern
+   --> src/quantile_lib.rs:185:9
+    |
+185 |         _ => panic!("impelemnted qunatile estimation"),
+    |         ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> src/quantile_lib.rs:185:9
+    |
+111 |         QuantileMethod::Sampling => vec![],
+    |         ------------------------ matches some of the same values
+112 |         // sample_and_combine_run_quantiles(runs, num_quantiles_per_run),
+113 |         QuantileMethod::Mean => mean_based_quantiles(runs, num_quantiles_per_run),
+    |         -------------------- matches some of the same values
+114 |         QuantileMethod::Median => median_based_quantiles(runs, num_quantiles_per_run),
+    |         ---------------------- matches some of the same values
+115 |         QuantileMethod::Histograms => histogram_based_quantiles(runs, num_quantiles_per_run),
+    |         -------------------------- matches some of the same values
+...
+185 |         _ => panic!("impelemnted qunatile estimation"),
+    |         ^ ...and 2 other patterns collectively make this unreachable
+    = note: `#[warn(unreachable_patterns)]` on by default
+
+warning: unused variable: `all_quantiles`
+   --> src/quantile_lib.rs:776:13
+    |
+776 |     let mut all_quantiles: Vec<usize> = Vec::with_capacity(max_num_quantiles - 1);
+    |             ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_all_quantiles`
+
+warning: variable does not need to be mutable
+   --> src/quantile_lib.rs:776:9
+    |
+776 |     let mut all_quantiles: Vec<usize> = Vec::with_capacity(max_num_quantiles - 1);
+    |         ----^^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variant `JumpIfFalse` is never constructed
+  --> src/executor/bytecode_expr.rs:21:5
+   |
+13 | pub enum ByteCodes {
+   |          --------- variant in this enum
+...
+21 |     JumpIfFalse,
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `colidx_expr` is never used
+   --> src/executor/bytecode_expr.rs:102:8
+    |
+102 | pub fn colidx_expr(colidx: usize) -> ByteCodeExpr {
+    |        ^^^^^^^^^^^
+
+warning: associated function `new` is never used
+    --> src/executor/inmem_pipeline/mod.rs:1182:12
+     |
+1181 | impl<T: TxnStorageTrait> Pipeline<T> {
+     | ------------------------------------ associated function in this implementation
+1182 |     pub fn new(id: PipelineID, execution_plan: BlockingOp<T>) -> Self {
+     |            ^^^
+
+warning: method `estimate_num_tuples` is never used
+   --> src/executor/ondisk_pipeline/mod.rs:110:12
+    |
+46  | impl<T: TxnStorageTrait, M: MemPool> NonBlockingOp<T, M> {
+    | -------------------------------------------------------- method in this implementation
+...
+110 |     pub fn estimate_num_tuples(
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: method `estimate_num_tuples` is never used
+   --> src/executor/ondisk_pipeline/mod.rs:230:12
+    |
+171 | impl<T: TxnStorageTrait, M: MemPool> PScanIter<T, M> {
+    | ---------------------------------------------------- method in this implementation
+...
+230 |     pub fn estimate_num_tuples(
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: method `estimate_num_tuples` is never used
+   --> src/executor/ondisk_pipeline/mod.rs:402:12
+    |
+358 | impl<T: TxnStorageTrait, M: MemPool> PFilterIter<T, M> {
+    | ------------------------------------------------------ method in this implementation
+...
+402 |     pub fn estimate_num_tuples(
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: method `estimate_num_tuples` is never used
+   --> src/executor/ondisk_pipeline/mod.rs:473:12
+    |
+422 | impl<T: TxnStorageTrait, M: MemPool> PProjectIter<T, M> {
+    | ------------------------------------------------------- method in this implementation
+...
+473 |     pub fn estimate_num_tuples(
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: method `estimate_num_tuples` is never used
+   --> src/executor/ondisk_pipeline/mod.rs:540:12
+    |
+487 | impl<T: TxnStorageTrait, M: MemPool> PMapIter<T, M> {
+    | --------------------------------------------------- method in this implementation
+...
+540 |     pub fn estimate_num_tuples(
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+    --> src/executor/ondisk_pipeline/mod.rs:1306:12
+     |
+1305 | impl<T: TxnStorageTrait, M: MemPool> Pipeline<T, M> {
+     | --------------------------------------------------- associated function in this implementation
+1306 |     pub fn new(
+     |            ^^^
+
+warning: field `schema` is never read
+   --> src/executor/ondisk_pipeline/disk_buffer.rs:168:5
+    |
+167 | pub struct TxnStorage<T: TxnStorageTrait> {
+    |            ---------- field in this struct
+168 |     schema: SchemaRef,
+    |     ^^^^^^
+
+warning: field `start_index` is never read
+   --> src/executor/ondisk_pipeline/disk_buffer.rs:269:5
+    |
+265 | pub struct TxnStorageRangeIter<T: TxnStorageTrait> {
+    |            ------------------- field in this struct
+...
+269 |     start_index: usize,
+    |     ^^^^^^^^^^^
+
+warning: variant `Kraska` is never constructed
+  --> src/executor/ondisk_pipeline/sort.rs:37:5
+   |
+36 | pub enum MergeStrategy {
+   |          ------------- variant in this enum
+37 |     Kraska,
+   |     ^^^^^^
+   |
+   = note: `MergeStrategy` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: method `get_quantiles` is never used
+  --> src/executor/ondisk_pipeline/sort.rs:89:12
+   |
+54 | impl SingleRunQuantiles {
+   | ----------------------- method in this implementation
+...
+89 |     pub fn get_quantiles(&self) -> &Vec<Vec<u8>> {
+   |            ^^^^^^^^^^^^^
+
+warning: associated items `max_kv_size` and `next_page` are never used
+   --> src/executor/ondisk_pipeline/sort.rs:188:8
+    |
+186 | pub trait AppendOnlyKVPage {
+    |           ---------------- associated items in this trait
+187 |     fn init(&mut self);
+188 |     fn max_kv_size() -> usize {
+    |        ^^^^^^^^^^^
+...
+193 |     fn next_page(&self) -> Option<(PageId, u32)>; // (next_page_id, next_frame_id)
+    |        ^^^^^^^^^
+
+warning: method `get_first_page` is never used
+   --> src/executor/ondisk_pipeline/sort.rs:361:12
+    |
+360 | impl<M: MemPool> SortBuffer<M> {
+    | ------------------------------ method in this implementation
+361 |     pub fn get_first_page(&self) -> &Page {
+    |            ^^^^^^^^^^^^^^
+
+warning: methods `compute_actual_quantiles`, `merge_step`, `merge_step_sorted_store`, and `print_efficiency_changes` are never used
+    --> src/executor/ondisk_pipeline/sort.rs:1263:8
+     |
+594  | impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
+     | ----------------------------------------------------- methods in this implementation
+...
+1263 |     fn compute_actual_quantiles(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1309 |     fn merge_step(
+     |        ^^^^^^^^^^
+...
+1323 |     fn merge_step_sorted_store(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^
+...
+1493 |     fn print_efficiency_changes(&self, pre: &StorageStats, post: &StorageStats) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `verify_sorted_results` is never used
+    --> src/executor/ondisk_pipeline/sort.rs:1587:4
+     |
+1587 | fn verify_sorted_results(
+     |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `verify_sorted_store` is never used
+    --> src/executor/ondisk_pipeline/sort.rs:1630:4
+     |
+1630 | fn verify_sorted_store<T: MemPool>(
+     |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `verify_sorted_store_full` is never used
+    --> src/executor/ondisk_pipeline/sort.rs:1707:4
+     |
+1707 | fn verify_sorted_store_full<T: MemPool>(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `set_offset`, `set_key_size`, `set_val_size`, `size`, and `set_size` are never used
+   --> src/executor/ondisk_pipeline/sort.rs:145:16
+    |
+113 |     impl Slot {
+    |     --------- methods in this implementation
+...
+145 |         pub fn set_offset(&mut self, offset: u16) {
+    |                ^^^^^^^^^^
+...
+153 |         pub fn set_key_size(&mut self, key_size: u16) {
+    |                ^^^^^^^^^^^^
+...
+161 |         pub fn set_val_size(&mut self, val_size: u16) {
+    |                ^^^^^^^^^^^^
+...
+165 |         pub fn size(&self) -> u16 {
+    |                ^^^^
+...
+169 |         pub fn set_size(&mut self, key_size: u16, val_size: u16) {
+    |                ^^^^^^^^
+
+warning: trait `Optimizer` is never used
+ --> src/optimizer/mod.rs:3:11
+  |
+3 | pub trait Optimizer {
+  |           ^^^^^^^^^
+
+warning: function `sample_and_combine_run_quantiles` is never used
+   --> src/quantile_lib.rs:193:4
+    |
+193 | fn sample_and_combine_run_quantiles<M: MemPool>(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `can_merge` is never used
+   --> src/quantile_lib.rs:581:4
+    |
+581 | fn can_merge(t1: &GKTuple, t2: &GKTuple, alpha: usize) -> bool {
+    |    ^^^^^^^^^
+
+warning: function `format_json_single_line_arrays` is never used
+   --> src/quantile_lib.rs:966:4
+    |
+966 | fn format_json_single_line_arrays(json_str: &str) -> Result<String, ExecError> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `query_exec` (lib) generated 70 warnings (run `cargo fix --lib -p query_exec` to apply 12 suggestions)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.15s
+     Running `target/release/sort_run -q 100 -p bp-dir-tpch-sf-1 -n 1 -b 3000 -m 10000`
+
+thread 'main' panicked at /mnt/nvme1/cmbenello/query_exec/src/executor/ondisk_pipeline/sort.rs:435:34:
+called `Result::unwrap()` on an `Err` value: CannotEvictPage
+stack backtrace:
+   0: rust_begin_unwind
+             at /rustc/4d91de4e48198da2e33413efdcd9cd2cc0c46688/library/std/src/panicking.rs:692:5
+   1: core::panicking::panic_fmt
+             at /rustc/4d91de4e48198da2e33413efdcd9cd2cc0c46688/library/core/src/panicking.rs:75:14
+   2: core::result::unwrap_failed
+             at /rustc/4d91de4e48198da2e33413efdcd9cd2cc0c46688/library/core/src/result.rs:1704:5
+   3: core::result::Result<T,E>::unwrap
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:1109:23
+   4: query_exec::executor::ondisk_pipeline::sort::SortBuffer<M>::append
+             at ./src/executor/ondisk_pipeline/sort.rs:432:41
+   5: query_exec::executor::ondisk_pipeline::sort::OnDiskSort<T,M>::run_generation_5::{{closure}}
+             at ./src/executor/ondisk_pipeline/sort.rs:700:29
+   6: core::ops::function::impls::<impl core::ops::function::FnMut<A> for &F>::call_mut
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:272:13
+   7: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &mut F>::call_once
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:305:13
+   8: core::option::Option<T>::map
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:1119:29
+   9: <core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::next
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/adapters/map.rs:107:26
+  10: <core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::next
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/adapters/map.rs:107:9
+  11: <core::iter::adapters::take_while::TakeWhile<I,P> as core::iter::traits::iterator::Iterator>::next
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/adapters/take_while.rs:48:21
+  12: <core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::next
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/adapters/map.rs:107:9
+  13: alloc::vec::Vec<T,A>::extend_desugared
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/vec/mod.rs:3535:35
+  14: <alloc::vec::Vec<T,A> as alloc::vec::spec_extend::SpecExtend<T,I>>::spec_extend
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/vec/spec_extend.rs:19:9
+  15: <alloc::vec::Vec<T,A> as core::iter::traits::collect::Extend<T>>::extend
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/vec/mod.rs:3496:9
+  16: <rayon::iter::extend::ListVecFolder<T> as rayon::iter::plumbing::Folder<T>>::consume_iter
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/extend.rs:130:18
+  17: <rayon::iter::while_some::WhileSomeFolder<C> as rayon::iter::plumbing::Folder<core::option::Option<T>>>::consume_iter
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/while_some.rs:139:21
+  18: <rayon::iter::map::MapFolder<C,F> as rayon::iter::plumbing::Folder<T>>::consume_iter
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/map.rs:248:21
+  19: <rayon::iter::map::MapFolder<C,F> as rayon::iter::plumbing::Folder<T>>::consume_iter
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/map.rs:248:21
+  20: rayon::iter::plumbing::Producer::fold_with
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/plumbing/mod.rs:109:9
+  21: rayon::iter::plumbing::bridge_producer_consumer::helper
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/plumbing/mod.rs:437:13
+  22: rayon::iter::plumbing::bridge_producer_consumer
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/plumbing/mod.rs:396:12
+  23: <rayon::iter::plumbing::bridge::Callback<C> as rayon::iter::plumbing::ProducerCallback<I>>::callback
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/plumbing/mod.rs:372:13
+  24: <<rayon::iter::enumerate::Enumerate<I> as rayon::iter::IndexedParallelIterator>::with_producer::Callback<CB> as rayon::iter::plumbing::ProducerCallback<I>>::callback
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/enumerate.rs:78:17
+  25: <rayon::vec::Drain<T> as rayon::iter::IndexedParallelIterator>::with_producer
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/vec.rs:147:13
+  26: <rayon::vec::IntoIter<T> as rayon::iter::IndexedParallelIterator>::with_producer
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/vec.rs:83:9
+  27: <rayon::iter::enumerate::Enumerate<I> as rayon::iter::IndexedParallelIterator>::with_producer
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/enumerate.rs:62:16
+  28: rayon::iter::plumbing::bridge
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/plumbing/mod.rs:356:12
+  29: <rayon::iter::enumerate::Enumerate<I> as rayon::iter::ParallelIterator>::drive_unindexed
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/enumerate.rs:38:9
+  30: <rayon::iter::map::Map<I,F> as rayon::iter::ParallelIterator>::drive_unindexed
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/map.rs:49:9
+  31: <rayon::iter::map::Map<I,F> as rayon::iter::ParallelIterator>::drive_unindexed
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/map.rs:49:9
+  32: <rayon::iter::while_some::WhileSome<I> as rayon::iter::ParallelIterator>::drive_unindexed
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/while_some.rs:44:9
+  33: rayon::iter::extend::<impl rayon::iter::ParallelExtend<T> for alloc::vec::Vec<T>>::par_extend
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/extend.rs:588:28
+  34: rayon::iter::from_par_iter::collect_extended
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/from_par_iter.rs:20:5
+  35: rayon::iter::from_par_iter::<impl rayon::iter::FromParallelIterator<T> for alloc::vec::Vec<T>>::from_par_iter
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/from_par_iter.rs:33:9
+  36: rayon::iter::ParallelIterator::collect
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/mod.rs:2069:9
+  37: rayon::result::<impl rayon::iter::FromParallelIterator<core::result::Result<T,E>> for core::result::Result<C,E>>::from_par_iter
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/result.rs:125:14
+  38: rayon::iter::ParallelIterator::collect
+             at /mnt/nvme1/cmbenello/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.10.0/src/iter/mod.rs:2069:9
+  39: query_exec::executor::ondisk_pipeline::sort::OnDiskSort<T,M>::run_generation_5
+             at ./src/executor/ondisk_pipeline/sort.rs:731:12
+  40: query_exec::executor::ondisk_pipeline::sort::OnDiskSort<T,M>::execute_with_strategy
+             at ./src/executor/ondisk_pipeline/sort.rs:1371:17
+  41: query_exec::executor::ondisk_pipeline::sort::OnDiskSort<T,M>::execute
+             at ./src/executor/ondisk_pipeline/sort.rs:1344:9
+  42: query_exec::executor::ondisk_pipeline::BlockingOp<T,M>::execute
+             at ./src/executor/ondisk_pipeline/mod.rs:1231:50
+  43: query_exec::executor::ondisk_pipeline::Pipeline<T,M>::execute
+             at ./src/executor/ondisk_pipeline/mod.rs:1387:9
+  44: <query_exec::executor::ondisk_pipeline::OnDiskPipelineGraph<T,M> as query_exec::executor::Executor<T>>::execute
+             at ./src/executor/ondisk_pipeline/mod.rs:1506:43
+  45: query_exec::query_executor::execute
+             at ./src/query_executor.rs:121:18
+  46: sort_run::run_sort
+             at ./src/bin/sort_run.rs:83:19
+  47: sort_run::main
+             at ./src/bin/sort_run.rs:106:25
+  48: core::ops::function::FnOnce::call_once
+             at /mnt/nvme1/cmbenello/rust/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
