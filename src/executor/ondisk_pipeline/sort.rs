@@ -390,41 +390,40 @@ impl<M: MemPool> SortBuffer<M> {
     pub fn append(&mut self, tuple: &Tuple) -> bool {
         let key = tuple.to_normalized_key_bytes(&self.sort_cols);
         let val = tuple.to_bytes();
-    
+
         /* ---------- ensure there is at least one page ------------------------ */
         if self.data_buffer.is_empty() {
             self.current_page_idx = 0;
             let frame = match self.mem_pool.create_new_page_for_write(self.dest_c_key) {
-                Ok(f)                               => f,
-                Err(MemPoolStatus::CannotEvictPage) => return false,  // caller will flush & retry
-                Err(e)                              => panic!("mem-pool error: {e:?}"),
+                Ok(f) => f,
+                Err(MemPoolStatus::CannotEvictPage) => return false, // caller will flush & retry
+                Err(e) => panic!("mem-pool error: {e:?}"),
             };
             let mut frame =
                 unsafe { std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame) };
             frame.init();
             self.data_buffer.push(frame);
         }
-    
+
         /* ---------- try to append to the current page ------------------------ */
         let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
         if page.append(&key, &val) {
-            self.ptrs.push((self.current_page_idx, page.slot_count() - 1));
+            self.ptrs
+                .push((self.current_page_idx, page.slot_count() - 1));
             return true;
         }
-    
+
         /* ---------- need a new page ----------------------------------------- */
         let next_idx = self.current_page_idx + 1;
         if next_idx < self.data_buffer.len() {
             self.current_page_idx = next_idx;
             let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
-            assert!(
-                page.append(&key, &val),
-                "record too large to fit in a page"
-            );
-            self.ptrs.push((self.current_page_idx, page.slot_count() - 1));
+            assert!(page.append(&key, &val), "record too large to fit in a page");
+            self.ptrs
+                .push((self.current_page_idx, page.slot_count() - 1));
             return true;
         }
-    
+
         /* ---------- allocate fresh page (obeying policy) --------------------- */
         match self.policy.as_ref() {
             MemoryPolicy::FixedSizeLimit(max_pages) if self.data_buffer.len() >= *max_pages => {
@@ -432,22 +431,21 @@ impl<M: MemPool> SortBuffer<M> {
             }
             MemoryPolicy::FixedSizeLimit(_) => {
                 let frame = match self.mem_pool.create_new_page_for_write(self.dest_c_key) {
-                    Ok(f)                               => f,
+                    Ok(f) => f,
                     Err(MemPoolStatus::CannotEvictPage) => return false,
-                    Err(e)                              => panic!("mem-pool error: {e:?}"),
+                    Err(e) => panic!("mem-pool error: {e:?}"),
                 };
-                let mut frame =
-                    unsafe { std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame) };
+                let mut frame = unsafe {
+                    std::mem::transmute::<FrameWriteGuard, FrameWriteGuard<'static>>(frame)
+                };
                 frame.init();
                 self.data_buffer.push(frame);
                 self.current_page_idx = next_idx;
-    
+
                 let page = self.data_buffer.get_mut(self.current_page_idx).unwrap();
-                assert!(
-                    page.append(&key, &val),
-                    "record too large to fit in a page"
-                );
-                self.ptrs.push((self.current_page_idx, page.slot_count() - 1));
+                assert!(page.append(&key, &val), "record too large to fit in a page");
+                self.ptrs
+                    .push((self.current_page_idx, page.slot_count() - 1));
                 true
             }
             _ => unimplemented!("Memory policy not implemented"),
@@ -639,6 +637,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         dest_c_key: ContainerKey,
     ) -> Result<Vec<Arc<SortedRunStore<M>>>, ExecError> {
         /* ---------- config & bookkeeping ------------------------------------- */
+        let t1 = Instant::now();
         let total_tuples: usize = env::var("NUM_TUPLES")
             .unwrap_or_else(|_| "6005720".into())
             .parse()
@@ -681,7 +680,7 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         /* ---------- run generation in parallel ------------------------------- */
         let sort_cols = self.sort_cols.clone();
         let num_q = self.quantiles.num_quantiles;
-
+        println!("Time taken to prepare sort: {:.2}s", t1.elapsed().as_secs_f64());
         let worker_results = plans
             .into_par_iter()
             .enumerate()
@@ -1125,12 +1124,18 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                         let mut carry = 1u8;
                         for byte in k.iter_mut().rev() {
                             let (b, c) = byte.overflowing_add(carry);
-                            *byte = b; carry = c as u8; if carry == 0 { break; }
+                            *byte = b;
+                            carry = c as u8;
+                            if carry == 0 {
+                                break;
+                            }
                         }
-                        if carry != 0 { k.insert(0, 1); }
+                        if carry != 0 {
+                            k.insert(0, 1);
+                        }
                         k
                     }
-                    
+
                     let upper_exclusive = bump(global_q[part + 1].clone());
 
                     // build per-run iterators restricted to this partition
@@ -1200,75 +1205,82 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         dest_c_key: ContainerKey,
         num_threads: usize,
         verbose: bool,
-    ) -> Result<Arc<BigSortedRunStore<M>>, ExecError>
-    {
+    ) -> Result<Arc<BigSortedRunStore<M>>, ExecError> {
         //------------------------------------------------------------------
         // 0) One-time bookkeeping
         //------------------------------------------------------------------
         let mut next_cid: u16 = dest_c_key.c_id.saturating_add(10_000);
-    
-        const READ_FRAMES_PER_RUN   : usize = 1;   // one page “cursor” per input run
-        const WRITE_FRAMES_RESERVED : usize = 2;   // one active + one spare/flush
-        const MAX_RUNS_PER_WORKER   : usize = 8;   // tweak for CPU/IO balance
-    
-        //------------------------------------------------------------------
+
+        const READ_FRAMES_PER_RUN: usize = 1; // R
+        const WRITE_FRAMES_RESERVED: usize = 2; // one active + one spare/flush
+        const WRITE_FRAMES_PER_WRK: usize = WRITE_FRAMES_RESERVED; // W (=2)
+
+        // ──────────────────────────────────────────────────────────────────────
         // 1) Buffer-pool & worker information
-        //------------------------------------------------------------------
-        let pool_pages  = mem_pool.capacity();                // exposed by your pool
-        let workers     = num_threads.min(pool_pages / 3).max(1);
-    
+        // ──────────────────────────────────────────────────────────────────────
+        let pool_pages  = mem_pool.capacity();             // B
+        let workers     = num_threads.max(1).min(pool_pages);   // t  (at least 1, ≤ B)
+        let write_pages = WRITE_FRAMES_PER_WRK;            // W   (per worker)
+
+        // per-worker read-frame budget  R = B / t − W
+        let per_worker_pages     = pool_pages      // B
+            .saturating_div(workers)              // B / t
+            .saturating_sub(write_pages);         // − W
+
+        let per_worker_runs_cap  = per_worker_pages / READ_FRAMES_PER_RUN; // = R
+        let total_runs_cap       = workers * per_worker_runs_cap;          // t × R
+
+        // global memory ceiling (still honour the tiny global write-reserve)
+        let mem_cap = pool_pages
+            .saturating_sub(WRITE_FRAMES_RESERVED)          // leave room for 2 write frames
+            / READ_FRAMES_PER_RUN;                          // → max #read-frames overall
+
+        
         if verbose {
             println!("» workers = {workers}  (pool holds {pool_pages} frames)");
         }
-    
-        let working_mem_pages = pool_pages;               // simple heuristic
+
+        let working_mem_pages = pool_pages; // simple heuristic
         if verbose {
             println!("» working-mem cap = {working_mem_pages} frames");
             println!("\n⟪ hierarchical merge begins ⟫");
         }
-    
+
         //------------------------------------------------------------------
         // 2)  Hierarchical fan-in loop
         //------------------------------------------------------------------
         let mut fanins = Vec::<usize>::new();
-    
+
         while runs.len() > 1 {
-            //--------------------------------------------------------------  
-            // (a) choose fan-in
-            //--------------------------------------------------------------  
-            let mem_cap   = working_mem_pages
-                            .saturating_sub(WRITE_FRAMES_RESERVED)
-                            / READ_FRAMES_PER_RUN;
-    
-            let thru_cap  = workers * MAX_RUNS_PER_WORKER;
-    
-            let fan_in    = runs.len()
-                            .min(mem_cap)
-                            .min(thru_cap)
-                            .max(2);
-    
+            //--------------------------------------------------------------
+            // step fan-in  = min{ available runs , memory cap , throughput cap }
+            let mut fan_in = runs.len()
+                .min(mem_cap)
+                .min(per_worker_runs_cap)
+                .max(2);
+            
             fanins.push(fan_in);
             if verbose {
                 println!("→ merging {fan_in} of {} runs", runs.len());
             }
-    
-            //--------------------------------------------------------------  
+
+            //--------------------------------------------------------------
             // (b) slice off the next *fan_in* inputs
-            //--------------------------------------------------------------  
+            //--------------------------------------------------------------
             let step_inputs: Vec<_> = runs.drain(0..fan_in).collect();
-    
-            //--------------------------------------------------------------  
+
+            //--------------------------------------------------------------
             // (c) reserve fresh container id range for the step
-            //--------------------------------------------------------------  
+            //--------------------------------------------------------------
             let step_base_key = ContainerKey {
                 db_id: dest_c_key.db_id,
-                c_id : next_cid,
+                c_id: next_cid,
             };
             next_cid = next_cid.wrapping_add(workers as u16);
-    
-            //--------------------------------------------------------------  
+
+            //--------------------------------------------------------------
             // (d) execute parallel merge step
-            //--------------------------------------------------------------  
+            //--------------------------------------------------------------
             let merged_bss = self.parallel_merge_step_bss(
                 step_inputs.clone(),
                 mem_pool,
@@ -1276,25 +1288,25 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 workers,
                 verbose,
             )?;
-    
-            //--------------------------------------------------------------  
+
+            //--------------------------------------------------------------
             // (e) feed result back into the queue
-            //--------------------------------------------------------------  
+            //--------------------------------------------------------------
             runs.push(merged_bss);
 
             for key in step_inputs
                 .iter()
                 .flat_map(|bss| bss.sorted_run_stores.iter().map(|s| s.c_key))
-                {
-                    // ignore errors – container might already be gone
-                    let _ = mem_pool.drop_container(key);
-                }
+            {
+                // ignore errors – container might already be gone
+                let _ = mem_pool.drop_container(key);
+            }
         }
-    
+
         if verbose {
             println!("⟪ hierarchical merge done  – fan-ins {:?} ⟫", fanins);
         }
-    
+
         //------------------------------------------------------------------
         // 3) single run remains
         //------------------------------------------------------------------
