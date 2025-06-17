@@ -1099,6 +1099,12 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
     
         let q_cnt = num_threads + 1;
         let mut global_q = estimate_quantiles(&runs, q_cnt, QuantileMethod::Actual);
+        global_q.sort();                       // ensure lexicographic order
+        global_q.dedup();                      // drop duplicates
+        let key_len = global_q[0].len();       // all keys have same length
+        while global_q.len() < q_cnt {         // pad if we removed too many
+            global_q.push(vec![255u8; key_len]);
+        }
         global_q[0] = vec![0; 9];
         global_q[q_cnt - 1] = vec![255; 9];
         let global_q = Arc::new(global_q);
