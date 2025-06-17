@@ -7,6 +7,7 @@ pub enum ExecError {
     Catalog(String),
     Storage(String),
     Pipeline(String),
+    Other(String),
 }
 
 impl From<TxnStorageStatus> for ExecError {

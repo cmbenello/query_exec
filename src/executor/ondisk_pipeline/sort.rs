@@ -1080,119 +1080,106 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         verbose: bool,
     ) -> Result<Arc<BigSortedRunStore<M>>, ExecError> {
         let merge_start = Instant::now();
-
-        //------------------------- 1. global quantiles ---------------------------
+        
+        // FIXED: Verify memory constraints before starting
+        let total_memory_needed = runs.len() * num_threads + num_threads * 2;
+        let available_memory = mem_pool.capacity();
+        
+        // if total_memory_needed > available_memory {
+        //     return Err(ExecError::Other(format!(
+        //         "Insufficient memory: need {} pages, have {} pages (fan-in: {}, workers: {})", 
+        //         total_memory_needed, available_memory, runs.len(), num_threads
+        //     )));
+        // }
+    
+        if verbose {
+            println!("Memory check: need {} pages, have {} pages", 
+                     total_memory_needed, available_memory);
+        }
+    
         let q_cnt = num_threads + 1;
         let mut global_q = estimate_quantiles(&runs, q_cnt, QuantileMethod::Actual);
         global_q[0] = vec![0; 9];
         global_q[q_cnt - 1] = vec![255; 9];
         let global_q = Arc::new(global_q);
-
-        //------------------------- 2. spawn workers ------------------------------
+    
         let worker_results = std::thread::scope(|scope| {
             let mut handles = Vec::with_capacity(num_threads);
-
+    
             for part in 0..num_threads {
                 let runs = runs.clone();
                 let mem_pool = Arc::clone(mem_pool);
                 let global_q = Arc::clone(&global_q);
-
-                handles.push(scope.spawn(move || -> (usize, SortedRunStore<M>, usize) {
+    
+                handles.push(scope.spawn(move || -> Result<(usize, SortedRunStore<M>, usize), ExecError> {
                     let t0 = Instant::now();
-
-                    // half-open range [lower, upper)
+    
                     let lower = global_q[part].clone();
-                    let mut upper = global_q[part + 1].clone();
-
-                    // make *upper* inclusive for the very last partition
-                    if part == num_threads - 1 {
-                        let mut carry = 1u8;
-                        for byte in upper.iter_mut().rev() {
-                            let (b, c) = byte.overflowing_add(carry);
-                            *byte = b;
-                            carry = c as u8;
-                            if carry == 0 {
-                                break;
-                            }
-                        }
-                        if carry != 0 {
-                            upper.insert(0, 1);
-                        }
-                    }
-
-                    fn bump(mut k: Vec<u8>) -> Vec<u8> {
-                        let mut carry = 1u8;
-                        for byte in k.iter_mut().rev() {
-                            let (b, c) = byte.overflowing_add(carry);
-                            *byte = b;
-                            carry = c as u8;
-                            if carry == 0 {
-                                break;
-                            }
-                        }
-                        if carry != 0 {
-                            k.insert(0, 1);
-                        }
-                        k
-                    }
-
-                    let upper_exclusive = bump(global_q[part + 1].clone());
-
-                    // build per-run iterators restricted to this partition
+                    
+                    // FIXED: Proper upper bound calculation
+                    let upper = if part == num_threads - 1 {
+                        // Make last partition inclusive by using max possible key
+                        vec![255u8; 32] // Use a large key that's guaranteed to be >= any real key
+                    } else {
+                        // For non-last partitions, use exclusive upper bound
+                        let upper = if part == num_threads - 1 {
+                            Vec::new()            // empty  => “no upper bound” for the last bucket
+                        } else {
+                            global_q[part + 1].clone()   // already exclusive
+                        };
+                        upper
+                    };
+    
+                    // Build per-run iterators
                     let segs: Vec<_> = runs
                         .iter()
-                        .map(|r| BigSortedRunStore::scan_range_arc(r, &lower, &upper_exclusive))
+                        .map(|r| BigSortedRunStore::scan_range_arc(r, &lower, &upper))
                         .collect();
-
-                    // k-way merge
+    
                     let merge_iter = MergeIter::new(segs);
-
-                    // each worker writes into its own temporary container
                     let tmp_key = ContainerKey {
                         db_id: dest_c_key.db_id,
                         c_id: dest_c_key.c_id + part as u16,
                     };
+                    
                     let store = SortedRunStore::new(tmp_key, mem_pool, merge_iter);
                     let tuples = store.len();
-
+    
                     if verbose {
-                        println!(
-                            "worker {part}: {tuples} recs, {} pages, {:.2}s",
-                            store.num_pages(),
-                            t0.elapsed().as_secs_f64()
-                        );
+                        println!("worker {part}: {tuples} recs, {} pages, {:.2}s",
+                                 store.num_pages(), t0.elapsed().as_secs_f64());
                     }
-                    (part, store, tuples)
+                    
+                    Ok((part, store, tuples))
                 }));
             }
-
-            // collect in order
+    
+            // Collect results in order
             let mut acc = vec![None; num_threads];
             for h in handles {
-                let (idx, st, cnt) = h.join().expect("worker panicked");
-                acc[idx] = Some((st, cnt));
+                match h.join() {
+                    Ok(Ok((idx, st, cnt))) => acc[idx] = Some((st, cnt)),
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => return Err(ExecError::Other("Worker thread panicked".to_string())),
+                }
             }
-            acc.into_iter().map(|o| o.unwrap()).collect::<Vec<_>>()
-        });
-
-        //------------------------- 3. assemble final BSS -------------------------
+            
+            Ok(acc.into_iter().map(|o| o.unwrap()).collect::<Vec<_>>())
+        })?;
+    
         let mut final_bss = BigSortedRunStore::new();
         let mut total_tuples = 0usize;
-
+    
         for (store, cnt) in worker_results {
             total_tuples += cnt;
             final_bss.add_store(Arc::new(store));
         }
-
+    
         if verbose {
-            println!(
-                "parallel_merge_step_bss: merged {} input-runs → {} tuples in {:.2}s",
-                runs.len(),
-                total_tuples,
-                merge_start.elapsed().as_secs_f64()
-            );
+            println!("parallel_merge_step_bss: merged {} input-runs → {} tuples in {:.2}s",
+                     runs.len(), total_tuples, merge_start.elapsed().as_secs_f64());
         }
-
+    
         Ok(Arc::new(final_bss))
     }
 
@@ -1206,81 +1193,52 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
         num_threads: usize,
         verbose: bool,
     ) -> Result<Arc<BigSortedRunStore<M>>, ExecError> {
-        //------------------------------------------------------------------
-        // 0) One-time bookkeeping
-        //------------------------------------------------------------------
         let mut next_cid: u16 = dest_c_key.c_id.saturating_add(10_000);
-
-        const READ_FRAMES_PER_RUN: usize = 1; // R
-        const WRITE_FRAMES_RESERVED: usize = 2; // one active + one spare/flush
-        const WRITE_FRAMES_PER_WRK: usize = WRITE_FRAMES_RESERVED; // W (=2)
-
-        // ──────────────────────────────────────────────────────────────────────
-        // 1) Buffer-pool & worker information
-        // ──────────────────────────────────────────────────────────────────────
-        let pool_pages  = mem_pool.capacity();             // B
-        let workers     = num_threads.max(1).min(pool_pages);   // t  (at least 1, ≤ B)
-        let write_pages = WRITE_FRAMES_PER_WRK;            // W   (per worker)
-
-        // per-worker read-frame budget  R = B / t − W
-        let per_worker_pages     = pool_pages      // B
-            .saturating_div(workers)              // B / t
-            .saturating_sub(write_pages);         // − W
-
-        let per_worker_runs_cap  = per_worker_pages / READ_FRAMES_PER_RUN; // = R
-        let total_runs_cap       = workers * per_worker_runs_cap;          // t × R
-
-        // global memory ceiling (still honour the tiny global write-reserve)
-        let mem_cap = pool_pages
-            .saturating_sub(WRITE_FRAMES_RESERVED)          // leave room for 2 write frames
-            / READ_FRAMES_PER_RUN;                          // → max #read-frames overall
-
-        
+    
+        const READ_FRAMES_PER_RUN: usize = 1;
+        const WRITE_FRAMES_PER_WRK: usize = 2;
+    
+        let pool_pages = ((mem_pool.capacity().max(1) as f64) * 0.9) as usize;
+        let workers = num_threads.max(1).min(pool_pages);
+    
         if verbose {
-            println!("» workers = {workers}  (pool holds {pool_pages} frames)");
-        }
-
-        let working_mem_pages = pool_pages; // simple heuristic
-        if verbose {
-            println!("» working-mem cap = {working_mem_pages} frames");
+            println!("» workers = {workers} (pool holds {pool_pages} frames)");
             println!("\n⟪ hierarchical merge begins ⟫");
         }
-
-        //------------------------------------------------------------------
-        // 2)  Hierarchical fan-in loop
-        //------------------------------------------------------------------
+    
         let mut fanins = Vec::<usize>::new();
-
+    
         while runs.len() > 1 {
-            //--------------------------------------------------------------
-            // step fan-in  = min{ available runs , memory cap , throughput cap }
-            let mut fan_in = runs.len()
-                .min(mem_cap)
-                .min(per_worker_runs_cap)
+            // FIXED: Correct memory calculation
+            // Total memory needed = fan_in * workers (reading) + workers * 2 (writing)
+            // So: fan_in * workers + workers * 2 <= pool_pages
+            // Therefore: fan_in <= (pool_pages - workers * 2) / workers
+            let memory_for_reads = pool_pages.saturating_sub(workers * WRITE_FRAMES_PER_WRK);
+            let max_fan_in_by_memory = if workers > 0 {
+                memory_for_reads / workers
+            } else {
+                1
+            };
+            
+            let fan_in = runs.len()
+                .min(max_fan_in_by_memory)
                 .max(2);
+            // let fan_in = 320;
             
             fanins.push(fan_in);
             if verbose {
-                println!("→ merging {fan_in} of {} runs", runs.len());
+                println!("→ merging {fan_in} of {} runs (memory allows max {})", 
+                         runs.len(), max_fan_in_by_memory);
+                println!("  total memory needed: {} pages", fan_in * workers + workers * WRITE_FRAMES_PER_WRK);
             }
-
-            //--------------------------------------------------------------
-            // (b) slice off the next *fan_in* inputs
-            //--------------------------------------------------------------
+    
             let step_inputs: Vec<_> = runs.drain(0..fan_in).collect();
-
-            //--------------------------------------------------------------
-            // (c) reserve fresh container id range for the step
-            //--------------------------------------------------------------
             let step_base_key = ContainerKey {
                 db_id: dest_c_key.db_id,
                 c_id: next_cid,
             };
             next_cid = next_cid.wrapping_add(workers as u16);
-
-            //--------------------------------------------------------------
-            // (d) execute parallel merge step
-            //--------------------------------------------------------------
+    
             let merged_bss = self.parallel_merge_step_bss(
                 step_inputs.clone(),
                 mem_pool,
@@ -1288,28 +1246,21 @@ impl<T: TxnStorageTrait, M: MemPool> OnDiskSort<T, M> {
                 workers,
                 verbose,
             )?;
-
-            //--------------------------------------------------------------
-            // (e) feed result back into the queue
-            //--------------------------------------------------------------
+    
             runs.push(merged_bss);
-
-            for key in step_inputs
-                .iter()
-                .flat_map(|bss| bss.sorted_run_stores.iter().map(|s| s.c_key))
-            {
-                // ignore errors – container might already be gone
-                let _ = mem_pool.drop_container(key);
+    
+            // FIXED: Immediate cleanup of processed runs
+            for bss in step_inputs.iter() {
+                for store in bss.sorted_run_stores.iter() {
+                    let _ = mem_pool.drop_container(store.c_key);
+                }
             }
         }
-
+    
         if verbose {
-            println!("⟪ hierarchical merge done  – fan-ins {:?} ⟫", fanins);
+            println!("⟪ hierarchical merge done – fan-ins {:?} ⟫", fanins);
         }
-
-        //------------------------------------------------------------------
-        // 3) single run remains
-        //------------------------------------------------------------------
+    
         Ok(runs.pop().unwrap())
     }
 

@@ -179,7 +179,8 @@ pub fn estimate_quantiles<M: MemPool>(
             }
 
             // If we get here, either the file wasn't found or the data wasn't valid
-            mean_based_quantiles(runs, num_quantiles_per_run)
+            // mean_based_quantiles(runs, num_quantiles_per_run)
+            median_based_quantiles(runs, num_quantiles_per_run)
         }
         // Shouldn't happen in "estimate" phase
         _ => panic!("impelemnted qunatile estimation"),
@@ -785,7 +786,7 @@ pub fn calculate_multiple_quantiles<M: MemPool>(
 
         // Calculate middle quantile positions
         for i in 1..num_quantiles - 1 {
-            let pos = (i * num_tuples) / (num_quantiles - 1);
+            let pos = (i * (num_tuples - 1)) / (num_quantiles - 1); 
             positions.push(pos);
         }
 
@@ -823,7 +824,8 @@ pub fn calculate_multiple_quantiles<M: MemPool>(
 
         current_pos += 1;
     }
-
+    println!("quantile sets: {:?}", quantile_sets);
+    quantile_sets.remove(0);
     // Validate results
     for (i, quantiles) in quantile_sets.iter().enumerate() {
         let expected_len = i + 2; // 2 quantiles for first set, 3 for second, etc.
@@ -850,6 +852,7 @@ pub fn write_quantiles_to_json_file<M: MemPool>(
     max_num_quantiles: usize,
 ) -> Result<(), ExecError> {
     // Calculate the quantiles
+    println!("num tuples {}", num_tuples);
     let quantiles = calculate_multiple_quantiles(sorted_runs, num_tuples, max_num_quantiles)?;
 
     // Create the directory path and filename
